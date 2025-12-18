@@ -28,6 +28,7 @@ $moyen_id = isset($input['moyen_id']) ? (int)$input['moyen_id'] : 0;
 $intervention_id = isset($input['intervention_id']) ? (int)$input['intervention_id'] : 0;
 $type = isset($input['type']) ? trim($input['type']) : '';
 $nom_indicatif = isset($input['nom_indicatif']) ? trim($input['nom_indicatif']) : '';
+$fonction = isset($input['fonction']) ? trim($input['fonction']) : '';
 $nb_pse = isset($input['nb_pse']) ? (int)$input['nb_pse'] : 0;
 $nb_ch = isset($input['nb_ch']) ? (int)$input['nb_ch'] : 0;
 $nb_ci = isset($input['nb_ci']) ? (int)$input['nb_ci'] : 0;
@@ -69,8 +70,8 @@ try {
     }
     
     // Mettre à jour le moyen
-    $stmt = $pdo->prepare("UPDATE moyens SET type = ?, nom_indicatif = ?, nb_pse = ?, nb_ch = ?, nb_ci = ?, nb_cadre_local = ?, nb_cadre_dept = ?, nb_logisticien = ? WHERE id = ? AND intervention_id = ?");
-    $stmt->execute([$type, $nom_indicatif, $nb_pse, $nb_ch, $nb_ci, $nb_cadre_local, $nb_cadre_dept, $nb_logisticien, $moyen_id, $intervention_id]);
+    $stmt = $pdo->prepare("UPDATE moyens SET type = ?, nom_indicatif = ?, fonction = ?, nb_pse = ?, nb_ch = ?, nb_ci = ?, nb_cadre_local = ?, nb_cadre_dept = ?, nb_logisticien = ? WHERE id = ? AND intervention_id = ?");
+    $stmt->execute([$type, $nom_indicatif, $fonction, $nb_pse, $nb_ch, $nb_ci, $nb_cadre_local, $nb_cadre_dept, $nb_logisticien, $moyen_id, $intervention_id]);
     
     echo json_encode([
         'status' => 'success',

@@ -23,10 +23,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $expediteur = trim($_POST['expediteur'] ?? '');
     $destinataire = trim($_POST['destinataire'] ?? '');
     $message = trim($_POST['message'] ?? '');
+    $moyen_com = trim($_POST['moyen_com'] ?? '');
+    $operateur = isset($_SESSION['user']['nom']) ? trim($_SESSION['user']['nom']) : 'Inconnu';
     
-    if ($expediteur && $destinataire && $message) {
-        $stmt = $pdo->prepare("INSERT INTO main_courante (intervention_id, expediteur, destinataire, message) VALUES (?, ?, ?, ?)");
-        $stmt->execute([$intervention_id, $expediteur, $destinataire, $message]);
+    if ($expediteur && $message) {
+        $stmt = $pdo->prepare("INSERT INTO main_courante (intervention_id, expediteur, destinataire, message, moyen_com, operateur) VALUES (?, ?, ?, ?, ?, ?)");
+        $stmt->execute([$intervention_id, $expediteur, $destinataire, $message, $moyen_com, $operateur]);
         header("Location: main_courante.php?id=" . $intervention_id);
         exit;
     }
@@ -57,13 +59,53 @@ $presets_message = $stmt->fetchAll(PDO::FETCH_COLUMN);
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
     <style>
-        .message-card {
-            margin-bottom: 15px;
-            border-left: 4px solid #0d6efd;
+        /* Timeline Main Courante */
+        .timeline-container {
+            position: relative;
+            padding-left: 30px;
         }
-        .message-card.old {
-            opacity: 0.8;
-            border-left-color: #6c757d;
+        .timeline-line {
+            position: absolute;
+            left: 8px;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background-color: #dee2e6;
+        }
+        .timeline-item {
+            position: relative;
+            margin-bottom: 15px;
+            padding-left: 20px;
+        }
+        .timeline-bullet {
+            position: absolute;
+            left: -22px;
+            top: 5px;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background-color: #D6001C;
+            border: 2px solid white;
+            box-shadow: 0 0 0 2px #dee2e6;
+        }
+        .timeline-content {
+            background-color: white;
+            padding: 10px;
+            border-radius: 4px;
+            border: 1px solid #dee2e6;
+        }
+        .timeline-time {
+            font-size: 0.75em;
+            color: #6c757d;
+            font-weight: 600;
+        }
+        .timeline-header {
+            font-size: 0.9em;
+            margin-bottom: 5px;
+        }
+        .timeline-message {
+            color: #212529;
+            font-size: 0.9em;
         }
     </style>
 </head>
@@ -121,13 +163,27 @@ $presets_message = $stmt->fetchAll(PDO::FETCH_COLUMN);
                                 <div class="col-md-6">
                                     <label for="destinataire" class="form-label">Destinataire</label>
                                     <input type="text" class="form-control" id="destinataire" name="destinataire" 
-                                           list="list-destinataire" placeholder="Saisir ou sélectionner" required>
+                                           list="list-destinataire" placeholder="Saisir ou sélectionner (optionnel)">
                                     <datalist id="list-destinataire">
                                         <?php foreach ($presets_destinataire as $preset): ?>
                                             <option value="<?php echo htmlspecialchars($preset); ?>">
                                         <?php endforeach; ?>
                                     </datalist>
-                                    <small class="text-muted">Vous pouvez saisir un texte libre ou choisir dans la liste</small>
+                                    <small class="text-muted">Vous pouvez saisir un texte libre ou choisir dans la liste (optionnel)</small>
+                                </div>
+                            </div>
+
+                            <div class="row mb-3">
+                                <div class="col-md-6">
+                                    <label for="moyen_com" class="form-label">Moyen de communication</label>
+                                    <select class="form-control" id="moyen_com" name="moyen_com">
+                                        <option value="" selected>Aucun (Facultatif)</option>
+                                        <option value="Radio">Radio</option>
+                                        <option value="Téléphone">Téléphone</option>
+                                        <option value="Face à face">Face à face</option>
+                                        <option value="Mail">Mail</option>
+                                        <option value="Appli">Appli</option>
+                                    </select>
                                 </div>
                             </div>
 
@@ -139,7 +195,7 @@ $presets_message = $stmt->fetchAll(PDO::FETCH_COLUMN);
                                 <div class="mt-2" style="max-height: 150px; overflow-y: auto; border: 1px solid #dee2e6; border-radius: 4px; padding: 8px; background-color: #f8f9fa;">
                                     <?php foreach ($presets_message as $preset): ?>
                                         <button type="button" class="btn btn-sm btn-outline-secondary me-1 mb-1" 
-                                                onclick="document.getElementById('message').value = '<?php echo htmlspecialchars($preset, ENT_QUOTES); ?>'">
+                                                onclick="document.getElementById('message').value = '<?php echo addslashes($preset); ?>'">
                                             <?php echo htmlspecialchars($preset); ?>
                                         </button>
                                     <?php endforeach; ?>
@@ -165,38 +221,39 @@ $presets_message = $stmt->fetchAll(PDO::FETCH_COLUMN);
                     </div>
                     <div class="card-body">
                         <?php if (empty($messages)): ?>
-                            <div class="alert alert-info text-center">
-                                <i class="bi bi-info-circle"></i> Aucun message pour le moment.
-                            </div>
+                            <p class="text-muted text-center">Aucun message pour le moment</p>
                         <?php else: ?>
-                            <?php 
-                            $now = new DateTime();
-                            foreach ($messages as $msg): 
-                                $msgDate = new DateTime($msg['horodatage']);
-                                $diff = $now->diff($msgDate);
-                                $isOld = $diff->days > 0 || $diff->h > 1;
-                            ?>
-                                <div class="card message-card <?php echo $isOld ? 'old' : ''; ?>">
-                                    <div class="card-body">
-                                        <div class="d-flex justify-content-between align-items-start mb-2">
-                                            <div>
-                                                <strong class="text-primary">
-                                                    <i class="bi bi-person"></i> <?php echo htmlspecialchars($msg['expediteur']); ?>
-                                                </strong>
-                                                <span class="text-muted"> → </span>
-                                                <strong class="text-success">
-                                                    <i class="bi bi-person-check"></i> <?php echo htmlspecialchars($msg['destinataire']); ?>
-                                                </strong>
+                            <div class="timeline-container">
+                                <div class="timeline-line"></div>
+                                <?php foreach ($messages as $msg): ?>
+                                    <div class="timeline-item" data-message-id="<?php echo $msg['id']; ?>">
+                                        <div class="timeline-bullet"></div>
+                                        <div class="timeline-content">
+                                            <div class="d-flex justify-content-between align-items-start mb-2">
+                                                <div class="timeline-header">
+                                                    <strong class="text-danger"><?php echo htmlspecialchars($msg['expediteur']); ?></strong>
+                                                    <?php if (!empty($msg['destinataire'])): ?>
+                                                        <span class="text-muted"> → </span>
+                                                        <strong class="text-success"><?php echo htmlspecialchars($msg['destinataire']); ?></strong>
+                                                    <?php endif; ?>
+                                                    <?php if (!empty($msg['moyen_com'])): ?>
+                                                        <span class="badge bg-secondary ms-2"><?php echo htmlspecialchars($msg['moyen_com']); ?></span>
+                                                    <?php endif; ?>
+                                                </div>
+                                                <div class="timeline-time">
+                                                    <?php echo date('d/m H:i', strtotime($msg['horodatage'])); ?>
+                                                </div>
                                             </div>
-                                            <small class="text-muted">
-                                                <i class="bi bi-clock"></i> 
-                                                <?php echo date('d/m/Y H:i:s', strtotime($msg['horodatage'])); ?>
-                                            </small>
+                                            <div class="timeline-message"><?php echo nl2br(htmlspecialchars($msg['message'])); ?></div>
+                                            <div class="mt-1">
+                                                <small class="text-muted fst-italic">
+                                                    <i class="bi bi-person"></i> Saisi par : <?php echo htmlspecialchars($msg['operateur'] ?? 'Inconnu'); ?>
+                                                </small>
+                                            </div>
                                         </div>
-                                        <p class="mb-0"><?php echo nl2br(htmlspecialchars($msg['message'])); ?></p>
                                     </div>
-                                </div>
-                            <?php endforeach; ?>
+                                <?php endforeach; ?>
+                            </div>
                         <?php endif; ?>
                     </div>
                 </div>

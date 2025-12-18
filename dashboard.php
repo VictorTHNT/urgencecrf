@@ -30,10 +30,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $nb_cadre_local = isset($_POST['nb_cadre_local']) && $_POST['nb_cadre_local'] !== '' ? (int)$_POST['nb_cadre_local'] : (isset($_POST['hidden-nb-cadre-local']) && $_POST['hidden-nb-cadre-local'] !== '' ? (int)$_POST['hidden-nb-cadre-local'] : 0);
     $nb_cadre_dept = isset($_POST['nb_cadre_dept']) && $_POST['nb_cadre_dept'] !== '' ? (int)$_POST['nb_cadre_dept'] : (isset($_POST['hidden-nb-cadre-dept']) && $_POST['hidden-nb-cadre-dept'] !== '' ? (int)$_POST['hidden-nb-cadre-dept'] : 0);
     $nb_logisticien = isset($_POST['nb_logisticien']) && $_POST['nb_logisticien'] !== '' ? (int)$_POST['nb_logisticien'] : (isset($_POST['hidden-nb-logisticien']) && $_POST['hidden-nb-logisticien'] !== '' ? (int)$_POST['hidden-nb-logisticien'] : 0);
+    $fonction = trim($_POST['fonction'] ?? '');
     
     if ($type && $nom_indicatif) {
-        $stmt = $pdo->prepare("INSERT INTO moyens (intervention_id, type, status, nom_indicatif, nb_pse, nb_ch, nb_ci, nb_cadre_local, nb_cadre_dept, nb_logisticien) VALUES (?, ?, 'dispo', ?, ?, ?, ?, ?, ?, ?)");
-        $stmt->execute([$intervention_id, $type, $nom_indicatif, $nb_pse, $nb_ch, $nb_ci, $nb_cadre_local, $nb_cadre_dept, $nb_logisticien]);
+        $stmt = $pdo->prepare("INSERT INTO moyens (intervention_id, type, status, nom_indicatif, nb_pse, nb_ch, nb_ci, nb_cadre_local, nb_cadre_dept, nb_logisticien, fonction) VALUES (?, ?, 'dispo', ?, ?, ?, ?, ?, ?, ?, ?)");
+        $stmt->execute([$intervention_id, $type, $nom_indicatif, $nb_pse, $nb_ch, $nb_ci, $nb_cadre_local, $nb_cadre_dept, $nb_logisticien, $fonction]);
         header("Location: dashboard.php?id=" . $intervention_id);
         exit;
     }
@@ -299,13 +300,13 @@ foreach ($moyens_engage as $moyen) {
     <div class="zone-info">
         <div class="container-fluid px-4">
             <div class="d-flex align-items-center gap-3 flex-wrap" style="min-height: 40px;">
-                <span><i class="bi bi-person text-muted"></i> <strong>Cadre Perm:</strong> <span class="text-truncate d-inline-block" style="max-width: 150px;" title="<?php echo htmlspecialchars($intervention['cadre_permanence'] ?: 'Non renseigné'); ?>"><?php echo htmlspecialchars($intervention['cadre_permanence'] ?: 'Non renseigné'); ?></span></span>
+                <span class="text-dark"><i class="bi bi-person text-muted"></i> <strong>Cadre Perm:</strong> <?php echo htmlspecialchars($intervention['cadre_permanence'] ?: 'Non renseigné'); ?></span>
                 <span class="text-muted">|</span>
-                <span><i class="bi bi-person-check text-muted"></i> <strong>Cadre Astreinte:</strong> <span class="text-truncate d-inline-block" style="max-width: 150px;" title="<?php echo htmlspecialchars($intervention['cadre_astreinte'] ?: 'Non renseigné'); ?>"><?php echo htmlspecialchars($intervention['cadre_astreinte'] ?: 'Non renseigné'); ?></span></span>
+                <span class="text-dark"><i class="bi bi-person-check text-muted"></i> <strong>Cadre Astreinte:</strong> <?php echo htmlspecialchars($intervention['cadre_astreinte'] ?: 'Non renseigné'); ?></span>
                 <span class="text-muted">|</span>
-                <span><i class="bi bi-building text-muted"></i> <strong>DTUS:</strong> <span class="text-truncate d-inline-block" style="max-width: 120px;" title="<?php echo htmlspecialchars($intervention['dtus_permanence'] ?? 'Non renseigné'); ?>"><?php echo htmlspecialchars($intervention['dtus_permanence'] ?? 'Non renseigné'); ?></span></span>
+                <span class="text-dark"><i class="bi bi-building text-muted"></i> <strong>DTUS:</strong> <?php echo htmlspecialchars($intervention['dtus_permanence'] ?? 'Non renseigné'); ?></span>
                 <span class="text-muted">|</span>
-                <span><i class="bi bi-geo-alt text-muted"></i> <strong>PMA:</strong> <span class="text-truncate d-inline-block" style="max-width: 200px;" title="<?php echo htmlspecialchars($intervention['adresse_pma']); ?>"><?php echo htmlspecialchars($intervention['adresse_pma']); ?></span></span>
+                <span class="text-dark"><i class="bi bi-geo-alt text-muted"></i> <strong>PMA:</strong> <?php echo htmlspecialchars($intervention['adresse_pma']); ?></span>
             </div>
         </div>
     </div>
@@ -391,14 +392,18 @@ foreach ($moyens_engage as $moyen) {
                                         <option value="BENEVOLE">BENEVOLE</option>
                                         <option value="CADRE">CADRE</option>
                                         <option value="VPSP_PCPS">VPSP_PCPS</option>
-                                        <option value="UMH">UMH</option>
-                                        <option value="GROUPE_BSPP">GROUPE_BSPP</option>
+                                        <option value="SAMU">SAMU</option>
+                                        <option value="BSPP">BSPP</option>
                                         <option value="Autre">Autre</option>
                                     </select>
                                 </div>
                                 <div class="col-3">
-                                    <input type="text" class="form-control form-control-sm" name="nom_indicatif" 
+                                    <input type="text" class="form-control form-control-sm" name="nom_indicatif" id="input-nom-indicatif"
                                            placeholder="Nom/Indicatif" required>
+                                </div>
+                                <div class="col-3" id="groupe-fonction" style="display: none;">
+                                    <input type="text" class="form-control form-control-sm" name="fonction" 
+                                           placeholder="Fonction (ex: Chef de dispositif)">
                                 </div>
                                 <div class="col-7" id="groupe-equipage" style="display: none;">
                                     <div class="row g-1">
@@ -466,7 +471,7 @@ foreach ($moyens_engage as $moyen) {
                                         <div class="moyen-item" data-moyen-id="<?php echo $moyen['id']; ?>">
                                             <div class="view-mode d-flex align-items-center gap-2" style="flex: 1;">
                                                 <span class="badge <?php echo $badge_class; ?>"><?php echo htmlspecialchars($moyen['type']); ?></span>
-                                                <strong><?php echo htmlspecialchars($moyen['nom_indicatif']); ?></strong>
+                                                <strong><?php echo htmlspecialchars($moyen['nom_indicatif']); ?><?php if ($moyen['type'] === 'CADRE' && !empty($moyen['fonction'])): ?> <span class="text-muted fw-normal">(<?php echo htmlspecialchars($moyen['fonction']); ?>)</span><?php endif; ?></strong>
                                                 <div class="d-flex gap-1">
                                                     <?php if ($nb_pse > 0): ?>
                                                         <span class="badge rounded-pill bg-light text-dark border"><?php echo $nb_pse; ?> PSE</span>
@@ -490,7 +495,7 @@ foreach ($moyens_engage as $moyen) {
                                             </div>
                                             
                                             <div class="edit-mode d-none d-flex align-items-center gap-2 flex-wrap" style="flex: 1;">
-                                                <select class="form-select form-select-sm" name="type" style="width: auto; max-width: 120px;">
+                                                <select class="form-select form-select-sm" name="type" style="width: auto; max-width: 120px;" onchange="gererAffichageFonctionEdit(this)">
                                                     <option value="VPSP" <?php echo $moyen['type'] === 'VPSP' ? 'selected' : ''; ?>>VPSP</option>
                                                     <option value="VL" <?php echo $moyen['type'] === 'VL' ? 'selected' : ''; ?>>VL</option>
                                                     <option value="MINIBUS" <?php echo $moyen['type'] === 'MINIBUS' ? 'selected' : ''; ?>>MINIBUS</option>
@@ -498,13 +503,16 @@ foreach ($moyens_engage as $moyen) {
                                                     <option value="BENEVOLE" <?php echo ($moyen['type'] === 'BENEVOLE' || $moyen['type'] === 'Benevole') ? 'selected' : ''; ?>>BENEVOLE</option>
                                                     <option value="CADRE" <?php echo $moyen['type'] === 'CADRE' ? 'selected' : ''; ?>>CADRE</option>
                                                     <option value="VPSP_PCPS" <?php echo $moyen['type'] === 'VPSP_PCPS' ? 'selected' : ''; ?>>VPSP_PCPS</option>
-                                                    <option value="UMH" <?php echo $moyen['type'] === 'UMH' ? 'selected' : ''; ?>>UMH</option>
-                                                    <option value="GROUPE_BSPP" <?php echo $moyen['type'] === 'GROUPE_BSPP' ? 'selected' : ''; ?>>GROUPE_BSPP</option>
+                                                    <option value="SAMU" <?php echo $moyen['type'] === 'SAMU' ? 'selected' : ''; ?>>SAMU</option>
+                                                    <option value="BSPP" <?php echo $moyen['type'] === 'BSPP' ? 'selected' : ''; ?>>BSPP</option>
                                                     <option value="Autre" <?php echo $moyen['type'] === 'Autre' ? 'selected' : ''; ?>>Autre</option>
                                                 </select>
                                                 <input type="text" class="form-control form-control-sm" 
                                                        name="nom_indicatif" value="<?php echo htmlspecialchars($moyen['nom_indicatif']); ?>" 
                                                        style="width: auto; min-width: 80px;">
+                                                <input type="text" class="form-control form-control-sm input-fonction-edit <?php echo $moyen['type'] === 'CADRE' ? '' : 'd-none'; ?>" 
+                                                       name="fonction" value="<?php echo htmlspecialchars($moyen['fonction'] ?? ''); ?>" 
+                                                       placeholder="Fonction" style="width: auto; min-width: 150px;">
                                                 <div class="d-flex gap-1 align-items-end">
                                                     <div class="d-flex flex-column align-items-center me-1">
                                                         <span class="text-muted" style="font-size: 0.65rem; line-height: 1; margin-bottom: 2px;">PSE</span>
@@ -593,7 +601,7 @@ foreach ($moyens_engage as $moyen) {
                                         <div class="moyen-item" data-moyen-id="<?php echo $moyen['id']; ?>">
                                             <div class="view-mode d-flex align-items-center gap-2" style="flex: 1;">
                                                 <span class="badge <?php echo $badge_class; ?>"><?php echo htmlspecialchars($moyen['type']); ?></span>
-                                                <strong><?php echo htmlspecialchars($moyen['nom_indicatif']); ?></strong>
+                                                <strong><?php echo htmlspecialchars($moyen['nom_indicatif']); ?><?php if ($moyen['type'] === 'CADRE' && !empty($moyen['fonction'])): ?> <span class="text-muted fw-normal">(<?php echo htmlspecialchars($moyen['fonction']); ?>)</span><?php endif; ?></strong>
                                                 <div class="d-flex gap-1">
                                                     <?php if ($nb_pse > 0): ?>
                                                         <span class="badge rounded-pill bg-light text-dark border"><?php echo $nb_pse; ?> PSE</span>
@@ -617,7 +625,7 @@ foreach ($moyens_engage as $moyen) {
                                             </div>
                                             
                                             <div class="edit-mode d-none d-flex align-items-center gap-2 flex-wrap" style="flex: 1;">
-                                                <select class="form-select form-select-sm" name="type" style="width: auto; max-width: 120px;">
+                                                <select class="form-select form-select-sm" name="type" style="width: auto; max-width: 120px;" onchange="gererAffichageFonctionEdit(this)">
                                                     <option value="VPSP" <?php echo $moyen['type'] === 'VPSP' ? 'selected' : ''; ?>>VPSP</option>
                                                     <option value="VL" <?php echo $moyen['type'] === 'VL' ? 'selected' : ''; ?>>VL</option>
                                                     <option value="MINIBUS" <?php echo $moyen['type'] === 'MINIBUS' ? 'selected' : ''; ?>>MINIBUS</option>
@@ -625,13 +633,16 @@ foreach ($moyens_engage as $moyen) {
                                                     <option value="BENEVOLE" <?php echo ($moyen['type'] === 'BENEVOLE' || $moyen['type'] === 'Benevole') ? 'selected' : ''; ?>>BENEVOLE</option>
                                                     <option value="CADRE" <?php echo $moyen['type'] === 'CADRE' ? 'selected' : ''; ?>>CADRE</option>
                                                     <option value="VPSP_PCPS" <?php echo $moyen['type'] === 'VPSP_PCPS' ? 'selected' : ''; ?>>VPSP_PCPS</option>
-                                                    <option value="UMH" <?php echo $moyen['type'] === 'UMH' ? 'selected' : ''; ?>>UMH</option>
-                                                    <option value="GROUPE_BSPP" <?php echo $moyen['type'] === 'GROUPE_BSPP' ? 'selected' : ''; ?>>GROUPE_BSPP</option>
+                                                    <option value="SAMU" <?php echo $moyen['type'] === 'SAMU' ? 'selected' : ''; ?>>SAMU</option>
+                                                    <option value="BSPP" <?php echo $moyen['type'] === 'BSPP' ? 'selected' : ''; ?>>BSPP</option>
                                                     <option value="Autre" <?php echo $moyen['type'] === 'Autre' ? 'selected' : ''; ?>>Autre</option>
                                                 </select>
                                                 <input type="text" class="form-control form-control-sm" 
                                                        name="nom_indicatif" value="<?php echo htmlspecialchars($moyen['nom_indicatif']); ?>" 
                                                        style="width: auto; min-width: 80px;">
+                                                <input type="text" class="form-control form-control-sm input-fonction-edit <?php echo $moyen['type'] === 'CADRE' ? '' : 'd-none'; ?>" 
+                                                       name="fonction" value="<?php echo htmlspecialchars($moyen['fonction'] ?? ''); ?>" 
+                                                       placeholder="Fonction" style="width: auto; min-width: 150px;">
                                                 <div class="d-flex gap-1 align-items-end">
                                                     <div class="d-flex flex-column align-items-center me-1">
                                                         <span class="text-muted" style="font-size: 0.65rem; line-height: 1; margin-bottom: 2px;">PSE</span>
@@ -744,12 +755,12 @@ foreach ($moyens_engage as $moyen) {
                                 <div class="input-group input-group-sm mb-2">
                                     <span class="input-group-text bg-light">Destinataire</span>
                                     <input type="text" class="form-control" id="input-destinataire" 
-                                           placeholder="Ex: PC CRF" required>
+                                           placeholder="Ex: PC CRF">
                                 </div>
                                 <div class="input-group input-group-sm mb-2">
                                     <span class="input-group-text bg-light">Moyen Com.</span>
-                                    <select class="form-control" id="select-moyen-com" required>
-                                        <option value="">-- Sélectionner --</option>
+                                    <select class="form-control" id="select-moyen-com">
+                                        <option value="">Aucun (Facultatif)</option>
                                         <option value="Radio">Radio</option>
                                         <option value="Téléphone">Téléphone</option>
                                         <option value="Face à face">Face à face</option>
@@ -799,8 +810,10 @@ foreach ($moyens_engage as $moyen) {
                                                 <div class="d-flex justify-content-between align-items-start mb-2">
                                                     <div class="timeline-header">
                                                         <strong class="text-danger"><?php echo htmlspecialchars($msg['expediteur']); ?></strong>
-                                                        <span class="text-muted"> → </span>
-                                                        <strong class="text-success"><?php echo htmlspecialchars($msg['destinataire']); ?></strong>
+                                                        <?php if (!empty($msg['destinataire'])): ?>
+                                                            <span class="text-muted"> → </span>
+                                                            <strong class="text-success"><?php echo htmlspecialchars($msg['destinataire']); ?></strong>
+                                                        <?php endif; ?>
                                                         <?php if (!empty($msg['moyen_com'])): ?>
                                                             <span class="badge bg-secondary ms-2"><?php echo htmlspecialchars($msg['moyen_com']); ?></span>
                                                         <?php endif; ?>
@@ -843,16 +856,27 @@ foreach ($moyens_engage as $moyen) {
         document.addEventListener('DOMContentLoaded', function() {
             const selectType = document.getElementById('select-type-moyen');
             const groupeEquipage = document.getElementById('groupe-equipage');
+            const groupeFonction = document.getElementById('groupe-fonction');
+            const inputNomIndicatif = document.getElementById('input-nom-indicatif');
             const hiddenNbPse = document.getElementById('hidden-nb-pse');
             const hiddenNbCh = document.getElementById('hidden-nb-ch');
             const hiddenNbCi = document.getElementById('hidden-nb-ci');
             
-            // Fonction pour gérer l'affichage des champs équipage
+            // Fonction pour gérer l'affichage des champs équipage et fonction
             function gererAffichageEquipage() {
                 const typeSelectionne = selectType.value;
                 const hiddenNbCadreLocal = document.getElementById('hidden-nb-cadre-local');
                 const hiddenNbCadreDept = document.getElementById('hidden-nb-cadre-dept');
                 const hiddenNbLogisticien = document.getElementById('hidden-nb-logisticien');
+                
+                // Gestion du champ fonction pour CADRE
+                if (typeSelectionne === 'CADRE') {
+                    groupeFonction.style.display = 'block';
+                    inputNomIndicatif.placeholder = 'Nom / Prénom';
+                } else {
+                    groupeFonction.style.display = 'none';
+                    inputNomIndicatif.placeholder = 'Nom/Indicatif';
+                }
                 
                 // Types qui nécessitent l'équipage complet
                 const typesAvecEquipage = ['VPSP', 'VL', 'MINIBUS', 'ETIR', 'VPSP_PCPS', 'BENEVOLE'];
@@ -1011,8 +1035,8 @@ foreach ($moyens_engage as $moyen) {
             const btnEnvoyer = document.getElementById('btn-envoyer-message');
             
             // Validation
-            if (!expediteur || !destinataire || !moyen_com) {
-                alert('Veuillez remplir tous les champs');
+            if (!expediteur) {
+                alert('Veuillez remplir l\'expéditeur');
                 return false;
             }
             
@@ -1129,6 +1153,7 @@ foreach ($moyens_engage as $moyen) {
             const moyenComBadge = messageData.moyen_com ? `<span class="badge bg-secondary ms-2">${escapeHtml(messageData.moyen_com)}</span>` : '';
             const operateurNom = messageData.operateur || 'Inconnu';
             const operateurInfo = `<div class="mt-1"><small class="text-muted fst-italic"><i class="bi bi-person"></i> Saisi par : ${escapeHtml(operateurNom)}</small></div>`;
+            const destinataireHtml = messageData.destinataire ? `<span class="text-muted"> → </span><strong class="text-success">${escapeHtml(messageData.destinataire)}</strong>` : '';
             
             timelineItem.innerHTML = `
                 <div class="timeline-bullet"></div>
@@ -1136,8 +1161,7 @@ foreach ($moyens_engage as $moyen) {
                     <div class="d-flex justify-content-between align-items-start mb-2">
                         <div class="timeline-header">
                             <strong class="text-danger">${escapeHtml(messageData.expediteur)}</strong>
-                            <span class="text-muted"> → </span>
-                            <strong class="text-success">${escapeHtml(messageData.destinataire)}</strong>
+                            ${destinataireHtml}
                             ${moyenComBadge}
                         </div>
                         <div class="timeline-time">${dateFormatee}</div>
@@ -1188,6 +1212,10 @@ foreach ($moyens_engage as $moyen) {
                 btnEdit.classList.remove('btn-outline-secondary');
                 btnEdit.classList.add('btn-success');
                 
+                // Initialiser l'affichage du champ fonction selon le type
+                const selectType = editMode.querySelector('select[name="type"]');
+                gererAffichageFonctionEdit(selectType);
+                
                 // Afficher le bouton de suppression
                 const btnDelete = moyenItem.querySelector('.btn-delete-moyen');
                 if (btnDelete) {
@@ -1222,6 +1250,20 @@ foreach ($moyens_engage as $moyen) {
             moyenEnEdition = null;
         }
 
+        function gererAffichageFonctionEdit(selectElement) {
+            const editMode = selectElement.closest('.edit-mode');
+            const inputFonction = editMode.querySelector('.input-fonction-edit');
+            const inputNomIndicatif = editMode.querySelector('input[name="nom_indicatif"]');
+            
+            if (selectElement.value === 'CADRE') {
+                inputFonction.classList.remove('d-none');
+                inputNomIndicatif.placeholder = 'Nom / Prénom';
+            } else {
+                inputFonction.classList.add('d-none');
+                inputNomIndicatif.placeholder = 'Nom/Indicatif';
+            }
+        }
+
         function sauvegarderMoyen(moyenId, moyenItem) {
             const btnEdit = moyenItem.querySelector('.btn-edit-moyen');
             const icon = btnEdit.querySelector('i');
@@ -1230,6 +1272,8 @@ foreach ($moyens_engage as $moyen) {
 
             const type = editMode.querySelector('select[name="type"]').value;
             const nom_indicatif = editMode.querySelector('input[name="nom_indicatif"]').value.trim();
+            const inputFonction = editMode.querySelector('input[name="fonction"]');
+            const fonction = inputFonction ? inputFonction.value.trim() : '';
             const nb_pse = parseInt(editMode.querySelector('input[name="nb_pse"]').value) || 0;
             const nb_ch = parseInt(editMode.querySelector('input[name="nb_ch"]').value) || 0;
             const nb_ci = parseInt(editMode.querySelector('input[name="nb_ci"]').value) || 0;
@@ -1250,6 +1294,7 @@ foreach ($moyens_engage as $moyen) {
                 intervention_id: INTERVENTION_ID,
                 type: type,
                 nom_indicatif: nom_indicatif,
+                fonction: fonction,
                 nb_pse: nb_pse,
                 nb_ch: nb_ch,
                 nb_ci: nb_ci,
@@ -1268,7 +1313,7 @@ foreach ($moyens_engage as $moyen) {
             .then(response => response.json())
             .then(result => {
                 if (result.status === 'success') {
-                    mettreAJourVueLecture(moyenItem, type, nom_indicatif, nb_pse, nb_ch, nb_ci, nb_cadre_local, nb_cadre_dept, nb_logisticien);
+                    mettreAJourVueLecture(moyenItem, type, nom_indicatif, fonction, nb_pse, nb_ch, nb_ci, nb_cadre_local, nb_cadre_dept, nb_logisticien);
                     editMode.classList.add('d-none');
                     viewMode.classList.remove('d-none');
                     icon.className = 'bi bi-gear';
@@ -1352,7 +1397,7 @@ foreach ($moyens_engage as $moyen) {
             });
         }
 
-        function mettreAJourVueLecture(moyenItem, type, nom_indicatif, nb_pse, nb_ch, nb_ci, nb_cadre_local, nb_cadre_dept, nb_logisticien) {
+        function mettreAJourVueLecture(moyenItem, type, nom_indicatif, fonction, nb_pse, nb_ch, nb_ci, nb_cadre_local, nb_cadre_dept, nb_logisticien) {
             const viewMode = moyenItem.querySelector('.view-mode');
             const badge = viewMode.querySelector('.badge');
             const strong = viewMode.querySelector('strong');
@@ -1367,8 +1412,12 @@ foreach ($moyens_engage as $moyen) {
             badge.className = 'badge ' + badgeClass;
             badge.textContent = type;
 
-            // Mettre à jour le nom
-            strong.textContent = nom_indicatif;
+            // Mettre à jour le nom avec la fonction si CADRE
+            if (type === 'CADRE' && fonction) {
+                strong.innerHTML = nom_indicatif + ' <span class="text-muted fw-normal">(' + fonction + ')</span>';
+            } else {
+                strong.textContent = nom_indicatif;
+            }
 
             // Mettre à jour les badges d'équipage
             if (badgesContainer) {

@@ -38,9 +38,9 @@ if (!$intervention_id) {
     exit;
 }
 
-if (empty($expediteur) || empty($destinataire) || empty($message)) {
+if (empty($expediteur) || empty($message)) {
     http_response_code(400);
-    echo json_encode(['status' => 'error', 'message' => 'Tous les champs sont requis']);
+    echo json_encode(['status' => 'error', 'message' => 'L\'expéditeur et le message sont requis']);
     exit;
 }
 
