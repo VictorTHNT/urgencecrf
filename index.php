@@ -156,7 +156,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                                 <option value="">-- Sélectionner --</option>
                                                 <option value="SAMU">SAMU</option>
                                                 <option value="VIGIE 92">VIGIE 92</option>
-                                                <option value="CODIS">CODIS</option>
+                                                <option value="BSPP">BSPP</option>
                                                 <option value="Préfecture">Préfecture</option>
                                                 <option value="PC CRF">PC CRF</option>
                                                 <option value="Autre">Autre</option>
