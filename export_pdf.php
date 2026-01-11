@@ -48,27 +48,44 @@ class PDF_ACEL extends FPDF
         // On récupère les infos passées globalement (pas très propre mais efficace pour FPDF simple)
         global $intervention;
 
+        // Affichage du message ARAMIS si applicable (AVANT tout le reste)
+        if (!empty($intervention['plan_aramis']) && $intervention['plan_aramis'] == 1) {
+            // Bandeau rouge vif pour ARAMIS
+            $this->SetFillColor(255, 0, 0); // Rouge vif
+            $this->Rect(10, 10, 190, 12, 'F');
+            $this->SetTextColor(255, 255, 255); // Blanc
+            $this->SetFont('Arial', 'B', 16);
+            $this->SetXY(15, 12);
+            $this->Cell(0, 8, $this->cv('CADRE DU PLAN ARAMIS'), 0, 1, 'C');
+            $this->Ln(3); // Espace après le bandeau ARAMIS
+            $y_start = 25; // Décaler le reste du header
+        } else {
+            $y_start = 10; // Position normale
+        }
+
         // 1. Fond Gris Foncé (Titre principal)
         $this->SetFillColor($this->col_gris_fonce[0], $this->col_gris_fonce[1], $this->col_gris_fonce[2]);
-        $this->Rect(10, 10, 190, 25, 'F');
+        $this->Rect(10, $y_start, 190, 25, 'F');
 
         // Titre Blanc
         $this->SetTextColor(255, 255, 255);
         $this->SetFont('Arial', 'B', 24);
-        $this->SetXY(15, 12);
+        $this->SetXY(15, $y_start + 2);
         $this->Cell(0, 15, $this->cv('Compte-Rendu ACEL'), 0, 1, 'L');
 
         // 2. Bandeau Rouge
+        $y_bandeau = $y_start + 25;
         $this->SetFillColor($this->col_rouge[0], $this->col_rouge[1], $this->col_rouge[2]);
-        $this->Rect(10, 35, 190, 6, 'F');
+        $this->Rect(10, $y_bandeau, 190, 6, 'F');
         
         $this->SetFont('Arial', 'B', 8);
-        $this->SetXY(15, 35);
+        $this->SetXY(15, $y_bandeau);
         $this->Cell(0, 6, $this->cv('DOCUMENT INTERNE / DÉLÉGATION TERRITORIALE'), 0, 1, 'L');
 
         // 3. Sous-header Gris (Rédacteurs)
+        $y_redacteurs = $y_bandeau + 6;
         $this->SetFillColor($this->col_gris_fonce[0], $this->col_gris_fonce[1], $this->col_gris_fonce[2]);
-        $this->Rect(10, 41, 190, 12, 'F');
+        $this->Rect(10, $y_redacteurs, 190, 12, 'F');
 
         // Construction de la chaîne rédacteurs
         $redacteurs = $intervention['cadre_permanence'];
@@ -76,14 +93,15 @@ class PDF_ACEL extends FPDF
             $redacteurs .= ' / ' . $intervention['cadre_astreinte'];
         }
 
-        $this->SetXY(15, 42);
+        $this->SetXY(15, $y_redacteurs + 1);
         $this->SetFont('Arial', '', 8);
         $this->Cell(0, 4, $this->cv("Direction Territoriale de l'Urgence et du Secourisme"), 0, 1, 'L');
         $this->SetFont('Arial', 'B', 9);
         $this->Cell(0, 5, $this->cv('Rédacteurs : ' . ($redacteurs ?: 'Non renseigné')), 0, 1, 'L');
 
-        // Marge après header
-        $this->Ln(15);
+        // Marge après header (ajuster selon si ARAMIS ou non)
+        $marge_apres_header = !empty($intervention['plan_aramis']) && $intervention['plan_aramis'] == 1 ? 15 : 15;
+        $this->Ln($marge_apres_header);
     }
 
     function Footer()

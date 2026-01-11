@@ -307,6 +307,11 @@ foreach ($moyens_engage as $moyen) {
                 <span class="text-dark"><i class="bi bi-building text-muted"></i> <strong>DTUS:</strong> <?php echo htmlspecialchars($intervention['dtus_permanence'] ?? 'Non renseigné'); ?></span>
                 <span class="text-muted">|</span>
                 <span class="text-dark"><i class="bi bi-geo-alt text-muted"></i> <strong>PMA:</strong> <?php echo htmlspecialchars($intervention['adresse_pma']); ?></span>
+                <span class="text-dark"><i class="bi bi-geo-alt text-muted"></i> <strong>CHU:</strong> <?php echo htmlspecialchars($intervention['adresse_chu']); ?></span>
+                <span class="text-dark"><i class="bi bi-geo-alt text-muted"></i> <strong>CAI:</strong> <?php echo htmlspecialchars($intervention['adresse_cai']); ?></span>
+                <span class="text-dark"><i class="bi bi-geo-alt text-muted"></i> <strong>PRM:</strong> <?php echo htmlspecialchars($intervention['adresse_prm']); ?></span>
+                <span class="text-muted">|</span>
+                <span class="text-dark"><i class="bi bi-geo-alt text-muted"></i> <strong>DRM:</strong> <?php echo htmlspecialchars($intervention['drm_numero']); ?></span>
             </div>
         </div>
     </div>

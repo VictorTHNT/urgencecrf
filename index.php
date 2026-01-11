@@ -5,6 +5,13 @@ require_once __DIR__ . '/includes/db.php';
 $message = '';
 $error = '';
 
+// Calcul du numéro d'intervention automatique (format YYYYMMDD + N)
+$annee_courante = date('Y');
+$stmt = $pdo->prepare("SELECT COUNT(*) as total FROM interventions WHERE YEAR(date_creation) = ?");
+$stmt->execute([$annee_courante]);
+$result = $stmt->fetch();
+$numero_auto = date('Ymd') . ($result['total'] + 1);
+
 // Traitement du formulaire
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
@@ -26,6 +33,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $logisticien_astreinte = trim($_POST['logisticien_astreinte'] ?? '');
         $aide_regulateur = trim($_POST['aide_regulateur'] ?? '');
         
+        // Nouveaux champs additionnels
+        $adresse = trim($_POST['adresse'] ?? '');
+        $is_drm = isset($_POST['is_drm']) ? 1 : 0;
+        $drm_numero = trim($_POST['drm_numero'] ?? '');
+        $adresse_chu = trim($_POST['adresse_chu'] ?? '');
+        $adresse_prm = trim($_POST['adresse_prm'] ?? '');
+        $plan_aramis = isset($_POST['plan_aramis']) ? (int)$_POST['plan_aramis'] : 0;
+        
         // Validation
         if (empty($commune) || empty($adresse_pma) || empty($demandeur) || empty($type_event)) {
             throw new Exception('Veuillez remplir tous les champs obligatoires.');
@@ -34,16 +49,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Insertion en base de données
         $stmt = $pdo->prepare("
             INSERT INTO interventions 
-            (commune, adresse_pma, adresse_cai, demandeur, type_event, is_acel, is_cot, numero_intervention, 
+            (commune, adresse, adresse_pma, adresse_cai, adresse_chu, adresse_prm, demandeur, type_event, 
+             is_acel, is_cot, is_drm, drm_numero, plan_aramis, numero_intervention, 
              cadres_astreinte, description, cadre_permanence, cadre_astreinte, dtus_permanence, 
              logisticien_astreinte, aide_regulateur)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ");
         
         $stmt->execute([
-            $commune, $adresse_pma, $adresse_cai, $demandeur, $type_event,
-            $is_acel, $is_cot, $numero_intervention, $cadres_astreinte, $description,
-            $cadre_permanence, $cadre_astreinte, $dtus_permanence, $logisticien_astreinte, $aide_regulateur
+            $commune, $adresse, $adresse_pma, $adresse_cai, $adresse_chu, $adresse_prm, $demandeur, $type_event,
+            $is_acel, $is_cot, $is_drm, $drm_numero, $plan_aramis, $numero_intervention, $cadres_astreinte, 
+            $description, $cadre_permanence, $cadre_astreinte, $dtus_permanence, $logisticien_astreinte, $aide_regulateur
         ]);
         
         $intervention_id = $pdo->lastInsertId();
@@ -146,11 +162,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 </div>
                                 <div class="card-body">
                                     <div class="row mb-3">
-                                        <div class="col-md-6">
+                                        <div class="col-md-4">
                                             <label for="commune" class="form-label">Commune <span class="text-danger">*</span></label>
                                             <input type="text" class="form-control" id="commune" name="commune" required>
                                         </div>
-                                        <div class="col-md-6">
+                                        <div class="col-md-4">
+                                            <label for="adresse" class="form-label">Adresse</label>
+                                            <input type="text" class="form-control" id="adresse" name="adresse" 
+                                                   placeholder="Adresse précise">
+                                        </div>
+                                        <div class="col-md-4">
                                             <label for="demandeur" class="form-label">Demandeur <span class="text-danger">*</span></label>
                                             <select class="form-select" id="demandeur" name="demandeur" required>
                                                 <option value="">-- Sélectionner --</option>
@@ -179,7 +200,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                         <div class="col-md-6">
                                             <label for="numero_intervention" class="form-label">Numéro d'Intervention</label>
                                             <input type="text" class="form-control" id="numero_intervention" 
-                                                   name="numero_intervention" placeholder="Ex: INT-2024-001">
+                                                   name="numero_intervention" value="<?php echo htmlspecialchars($numero_auto); ?>">
+                                        </div>
+                                    </div>
+                                    <div class="row mb-3">
+                                        <div class="col-md-6">
+                                            <div class="form-check mb-2">
+                                                <input class="form-check-input" type="checkbox" id="is_drm" name="is_drm" value="1">
+                                                <label class="form-check-label" for="is_drm">
+                                                    DRM
+                                                </label>
+                                            </div>
+                                            <div id="drm_numero_group" style="display: none;">
+                                                <label for="drm_numero" class="form-label">Numéro DRM</label>
+                                                <input type="text" class="form-control" id="drm_numero" name="drm_numero" 
+                                                       placeholder="Numéro DRM" pattern="[0-9]*" inputmode="numeric">
+                                            </div>
                                         </div>
                                     </div>
                                     <div class="mb-3">
@@ -205,6 +241,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                             </div>
                                         </div>
                                     </div>
+                                    <input type="hidden" id="plan_aramis" name="plan_aramis" value="0">
                                 </div>
                             </fieldset>
 
@@ -225,6 +262,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                             <input type="text" class="form-control" id="adresse_cai" name="adresse_cai" 
                                                    placeholder="Adresse du Centre d'Accueil et d'Information">
                                         </div>
+                                        <div class="col-md-6 mb-3">
+                                            <label for="adresse_chu" class="form-label">Adresse CHU</label>
+                                            <input type="text" class="form-control" id="adresse_chu" name="adresse_chu" 
+                                                   placeholder="Adresse du Centre Hospitalier Universitaire">
+                                        </div>
+                                        <div class="col-md-6 mb-3">
+                                            <label for="adresse_prm" class="form-label">Adresse PRM</label>
+                                            <input type="text" class="form-control" id="adresse_prm" name="adresse_prm" 
+                                                   placeholder="Adresse du Poste de Régulation Médicale">
+                                        </div>
                                     </div>
                                 </div>
                             </fieldset>
@@ -242,6 +289,61 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <!-- Modale pour le Plan ARAMIS -->
+    <div class="modal fade" id="modalAramis" tabindex="-1" aria-labelledby="modalAramisLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="modalAramisLabel">Plan ARAMIS</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Est-ce dans le cadre du plan ARAMIS ?</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-success" onclick="setPlanAramis(1)" data-bs-dismiss="modal">Oui</button>
+                    <button type="button" class="btn btn-secondary" onclick="setPlanAramis(0)" data-bs-dismiss="modal">Non</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Gestion de l'affichage du champ DRM numéro
+        document.addEventListener('DOMContentLoaded', function() {
+            const checkboxDrm = document.getElementById('is_drm');
+            const drmNumeroGroup = document.getElementById('drm_numero_group');
+            
+            checkboxDrm.addEventListener('change', function() {
+                if (this.checked) {
+                    drmNumeroGroup.style.display = 'block';
+                } else {
+                    drmNumeroGroup.style.display = 'none';
+                    document.getElementById('drm_numero').value = '';
+                }
+            });
+            
+            // Gestion de la modale ARAMIS quand COT est coché
+            const checkboxCot = document.getElementById('is_cot');
+            const modalAramis = new bootstrap.Modal(document.getElementById('modalAramis'));
+            
+            checkboxCot.addEventListener('change', function() {
+                if (this.checked) {
+                    // Ouvrir la modale
+                    modalAramis.show();
+                } else {
+                    // Si on décoche COT, remettre plan_aramis à 0
+                    document.getElementById('plan_aramis').value = 0;
+                }
+            });
+        });
+        
+        // Fonction pour définir le plan ARAMIS
+        function setPlanAramis(value) {
+            document.getElementById('plan_aramis').value = value;
+        }
+    </script>
 </body>
 </html>
 
