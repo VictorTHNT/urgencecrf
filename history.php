@@ -58,11 +58,24 @@ $interventions = $stmt->fetchAll();
                         <i class="bi bi-info-circle"></i> Aucune intervention enregistrée.
                     </div>
                 <?php else: ?>
+                    <div class="p-3 border-bottom bg-light">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="input-group">
+                                    <span class="input-group-text bg-white">
+                                        <i class="bi bi-search"></i>
+                                    </span>
+                                    <input type="text" class="form-control" id="searchIntervention" 
+                                           placeholder="Rechercher une intervention...">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                     <div class="table-responsive">
-                        <table class="table table-hover table-striped mb-0">
+                        <table class="table table-hover table-striped mb-0" id="tableInterventions">
                             <thead class="table-light">
                                 <tr>
-                                    <th>ID</th>
+                                    <th>Numéro d'Intervention</th>
                                     <th>Date</th>
                                     <th>Commune</th>
                                     <th>Type d'Événement</th>
@@ -76,9 +89,10 @@ $interventions = $stmt->fetchAll();
                                 <?php foreach ($interventions as $inter): ?>
                                     <tr>
                                         <td>
-                                            <strong class="text-danger">#<?php echo $inter['id']; ?></strong>
                                             <?php if ($inter['numero_intervention']): ?>
-                                                <br><small class="text-muted"><?php echo htmlspecialchars($inter['numero_intervention']); ?></small>
+                                                <strong class="fw-bold fs-5 text-danger"><?php echo htmlspecialchars($inter['numero_intervention']); ?></strong>
+                                            <?php else: ?>
+                                                <span class="text-muted fst-italic">Non renseigné</span>
                                             <?php endif; ?>
                                         </td>
                                         <td>
@@ -135,6 +149,55 @@ $interventions = $stmt->fetchAll();
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Fonction de recherche dynamique
+        document.addEventListener('DOMContentLoaded', function() {
+            const searchInput = document.getElementById('searchIntervention');
+            const tableBody = document.querySelector('#tableInterventions tbody');
+            const rows = tableBody.querySelectorAll('tr');
+            
+            if (searchInput) {
+                searchInput.addEventListener('input', function() {
+                    const searchText = this.value.toLowerCase().trim();
+                    
+                    rows.forEach(function(row) {
+                        // Récupération des cellules dans l'ordre :
+                        // 0: Numéro d'intervention
+                        // 1: Date
+                        // 2: Commune
+                        // 3: Type d'événement
+                        // 4: Demandeur
+                        // (5: Description - non recherchée selon la demande)
+                        // (6: Statut - non recherchée selon la demande)
+                        // (7: Actions - non recherchée)
+                        
+                        const cells = row.querySelectorAll('td');
+                        if (cells.length < 5) return; // Sécurité si structure différente
+                        
+                        const numeroIntervention = cells[0].textContent.toLowerCase();
+                        const date = cells[1].textContent.toLowerCase();
+                        const commune = cells[2].textContent.toLowerCase();
+                        const typeEvent = cells[3].textContent.toLowerCase();
+                        const demandeur = cells[4].textContent.toLowerCase();
+                        
+                        // Vérifier si le texte de recherche correspond à l'une des colonnes
+                        const matches = numeroIntervention.includes(searchText) ||
+                                       date.includes(searchText) ||
+                                       commune.includes(searchText) ||
+                                       typeEvent.includes(searchText) ||
+                                       demandeur.includes(searchText);
+                        
+                        // Afficher ou masquer la ligne
+                        if (matches || searchText === '') {
+                            row.style.display = '';
+                        } else {
+                            row.style.display = 'none';
+                        }
+                    });
+                });
+            }
+        });
+    </script>
 </body>
 </html>
 
