@@ -39,16 +39,47 @@ $stmt = $pdo->prepare("SELECT * FROM main_courante WHERE intervention_id = ? ORD
 $stmt->execute([$intervention_id]);
 $messages = $stmt->fetchAll();
 
-// Récupération des presets pour l'autocomplétion
+// Récupération des presets pour l'autocomplétion (anciens presets)
 $stmt = $pdo->prepare("SELECT texte FROM presets_messages WHERE categorie = ? ORDER BY texte");
-$stmt->execute(['expediteur']);
-$presets_expediteur = $stmt->fetchAll(PDO::FETCH_COLUMN);
+$presets_expediteur = [];
+$presets_destinataire = [];
+$presets_message = [];
 
-$stmt->execute(['destinataire']);
-$presets_destinataire = $stmt->fetchAll(PDO::FETCH_COLUMN);
+try {
+    $stmt->execute(['expediteur']);
+    $presets_expediteur = $stmt->fetchAll(PDO::FETCH_COLUMN);
+    
+    $stmt->execute(['destinataire']);
+    $presets_destinataire = $stmt->fetchAll(PDO::FETCH_COLUMN);
+    
+    $stmt->execute(['message']);
+    $presets_message = $stmt->fetchAll(PDO::FETCH_COLUMN);
+} catch (PDOException $e) {
+    // Si les anciennes catégories n'existent plus, on continue
+}
 
-$stmt->execute(['message']);
-$presets_message = $stmt->fetchAll(PDO::FETCH_COLUMN);
+// Récupération de tous les presets pour les Quick Texts (nouvelles catégories)
+$quick_texts = [];
+try {
+    $stmt_quick = $pdo->prepare("SELECT categorie, titre, contenu FROM presets_messages WHERE categorie IN ('Renseignement', 'Ambiance', 'Demande') ORDER BY categorie, titre");
+    $stmt_quick->execute();
+    $quick_texts_raw = $stmt_quick->fetchAll(PDO::FETCH_ASSOC);
+    
+    // Organiser les Quick Texts par catégorie pour faciliter l'accès en JavaScript
+    foreach ($quick_texts_raw as $row) {
+        $categorie = $row['categorie'];
+        if (!isset($quick_texts[$categorie])) {
+            $quick_texts[$categorie] = [];
+        }
+        $quick_texts[$categorie][] = [
+            'titre' => $row['titre'] ?? '',
+            'contenu' => $row['contenu'] ?? ''
+        ];
+    }
+} catch (PDOException $e) {
+    // Si les colonnes titre/contenu n'existent pas encore, on continue avec un tableau vide
+    // L'utilisateur devra exécuter le script SQL d'abord
+}
 ?>
 <!DOCTYPE html>
 <html lang="fr">
@@ -174,7 +205,7 @@ $presets_message = $stmt->fetchAll(PDO::FETCH_COLUMN);
                             </div>
 
                             <div class="row mb-3">
-                                <div class="col-md-6">
+                                <div class="col-md-4">
                                     <label for="moyen_com" class="form-label">Moyen de communication</label>
                                     <select class="form-control" id="moyen_com" name="moyen_com">
                                         <option value="" selected>Aucun (Facultatif)</option>
@@ -183,6 +214,21 @@ $presets_message = $stmt->fetchAll(PDO::FETCH_COLUMN);
                                         <option value="Face à face">Face à face</option>
                                         <option value="Mail">Mail</option>
                                         <option value="Appli">Appli</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-4">
+                                    <label for="categorie_quick" class="form-label">Catégorie</label>
+                                    <select class="form-control" id="categorie_quick" name="categorie_quick">
+                                        <option value="" selected>Sélectionner une catégorie</option>
+                                        <option value="Renseignement">Renseignement</option>
+                                        <option value="Ambiance">Ambiance</option>
+                                        <option value="Demande">Demande</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-4">
+                                    <label for="message_predefini" class="form-label">Message Prédéfini</label>
+                                    <select class="form-control" id="message_predefini" name="message_predefini" disabled>
+                                        <option value="">Sélectionner une catégorie d'abord</option>
                                     </select>
                                 </div>
                             </div>
@@ -263,6 +309,54 @@ $presets_message = $stmt->fetchAll(PDO::FETCH_COLUMN);
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
+        // Données des Quick Texts passées depuis PHP
+        const quickTexts = <?php echo json_encode($quick_texts, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNESCAPED_UNICODE); ?>;
+        
+        // Éléments du DOM
+        const categorieSelect = document.getElementById('categorie_quick');
+        const messagePredefiniSelect = document.getElementById('message_predefini');
+        const messageTextarea = document.getElementById('message');
+        
+        // Gestion du changement de catégorie
+        categorieSelect.addEventListener('change', function() {
+            const categorie = this.value;
+            
+            // Réinitialiser le select des messages prédéfinis
+            messagePredefiniSelect.innerHTML = '<option value="">Sélectionner un message</option>';
+            
+            if (categorie && quickTexts[categorie]) {
+                // Activer le select et remplir avec les messages de la catégorie
+                messagePredefiniSelect.disabled = false;
+                
+                quickTexts[categorie].forEach(function(item) {
+                    const option = document.createElement('option');
+                    option.value = item.contenu;
+                    option.textContent = item.titre;
+                    messagePredefiniSelect.appendChild(option);
+                });
+            } else {
+                // Désactiver le select si aucune catégorie sélectionnée
+                messagePredefiniSelect.disabled = true;
+            }
+        });
+        
+        // Gestion de la sélection d'un message prédéfini
+        messagePredefiniSelect.addEventListener('change', function() {
+            const contenu = this.value;
+            
+            if (contenu) {
+                // Ajouter le contenu au textarea
+                if (messageTextarea.value.trim() !== '') {
+                    messageTextarea.value += '\n' + contenu;
+                } else {
+                    messageTextarea.value = contenu;
+                }
+                
+                // Réinitialiser la sélection pour permettre de réutiliser le même message
+                this.value = '';
+            }
+        });
+        
         // Auto-scroll vers le haut pour voir le dernier message ajouté
         window.addEventListener('load', function() {
             window.scrollTo(0, 0);

@@ -73,6 +73,47 @@ try {
     $stmt = $pdo->prepare("UPDATE moyens SET type = ?, nom_indicatif = ?, fonction = ?, nb_pse = ?, nb_ch = ?, nb_ci = ?, nb_cadre_local = ?, nb_cadre_dept = ?, nb_logisticien = ? WHERE id = ? AND intervention_id = ?");
     $stmt->execute([$type, $nom_indicatif, $fonction, $nb_pse, $nb_ch, $nb_ci, $nb_cadre_local, $nb_cadre_dept, $nb_logisticien, $moyen_id, $intervention_id]);
     
+    // Gestion du personnel : suppression
+    $personnel_to_delete = isset($input['personnel_to_delete']) ? $input['personnel_to_delete'] : [];
+    if (!empty($personnel_to_delete) && is_array($personnel_to_delete)) {
+        // Sécuriser les IDs (forcer le typage en entier)
+        $ids_to_delete = array_map('intval', $personnel_to_delete);
+        $ids_to_delete = array_filter($ids_to_delete, function($id) { return $id > 0; });
+        
+        if (!empty($ids_to_delete)) {
+            // Vérifier que les IDs appartiennent bien au moyen
+            $placeholders = implode(',', array_fill(0, count($ids_to_delete), '?'));
+            $stmt_check = $pdo->prepare("SELECT id FROM moyen_personnel WHERE id IN ($placeholders) AND moyen_id = ?");
+            $params_check = array_merge($ids_to_delete, [$moyen_id]);
+            $stmt_check->execute($params_check);
+            $valid_ids = $stmt_check->fetchAll(PDO::FETCH_COLUMN);
+            
+            if (!empty($valid_ids)) {
+                $placeholders_delete = implode(',', array_fill(0, count($valid_ids), '?'));
+                $stmt_delete = $pdo->prepare("DELETE FROM moyen_personnel WHERE id IN ($placeholders_delete) AND moyen_id = ?");
+                $params_delete = array_merge($valid_ids, [$moyen_id]);
+                $stmt_delete->execute($params_delete);
+            }
+        }
+    }
+    
+    // Gestion du personnel : ajout
+    $personnel_to_add = isset($input['personnel_to_add']) ? $input['personnel_to_add'] : [];
+    if (!empty($personnel_to_add) && is_array($personnel_to_add)) {
+        $stmt_insert = $pdo->prepare("INSERT INTO moyen_personnel (moyen_id, role, nom_prenom) VALUES (?, ?, ?)");
+        
+        foreach ($personnel_to_add as $role => $personnes) {
+            if (is_array($personnes)) {
+                foreach ($personnes as $nom_prenom) {
+                    $nom_prenom = trim($nom_prenom);
+                    if (!empty($nom_prenom)) {
+                        $stmt_insert->execute([$moyen_id, $role, $nom_prenom]);
+                    }
+                }
+            }
+        }
+    }
+    
     echo json_encode([
         'status' => 'success',
         'message' => 'Moyen mis à jour avec succès'

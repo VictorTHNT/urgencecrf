@@ -35,6 +35,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     if ($type && $nom_indicatif) {
         $stmt = $pdo->prepare("INSERT INTO moyens (intervention_id, type, status, nom_indicatif, nb_pse, nb_ch, nb_ci, nb_cadre_local, nb_cadre_dept, nb_logisticien, fonction) VALUES (?, ?, 'dispo', ?, ?, ?, ?, ?, ?, ?, ?)");
         $stmt->execute([$intervention_id, $type, $nom_indicatif, $nb_pse, $nb_ch, $nb_ci, $nb_cadre_local, $nb_cadre_dept, $nb_logisticien, $fonction]);
+        $moyen_id = $pdo->lastInsertId();
+        
+        // Traitement de l'équipage (personnel)
+        if (isset($_POST['personnel']) && is_array($_POST['personnel'])) {
+            foreach ($_POST['personnel'] as $role => $personnes) {
+                if (is_array($personnes)) {
+                    foreach ($personnes as $nom_prenom) {
+                        $nom_prenom = trim($nom_prenom);
+                        if (!empty($nom_prenom)) {
+                            $stmt_personnel = $pdo->prepare("INSERT INTO moyen_personnel (moyen_id, role, nom_prenom) VALUES (?, ?, ?)");
+                            $stmt_personnel->execute([$moyen_id, $role, $nom_prenom]);
+                        }
+                    }
+                }
+            }
+        }
+        
         header("Location: dashboard.php?id=" . $intervention_id);
         exit;
     }
@@ -49,6 +66,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     
     $stmt = $pdo->prepare("UPDATE interventions SET nb_ur = ?, nb_ua = ?, nb_dcd = ?, nb_impliques = ? WHERE id = ?");
     $stmt->execute([$nb_ur, $nb_ua, $nb_dcd, $nb_impliques, $intervention_id]);
+
+    // Traçabilité : ajout automatique d'un message dans la Main Courante
+    if ($stmt->rowCount() > 0) {
+        $msg_denombrement = sprintf(
+            'Mise à jour du dénombrement terrain : %d UR, %d UA, %d Impliqués, %d DCD. Total impliqués : %d.',
+            $nb_ur,
+            $nb_ua,
+            $nb_impliques,
+            $nb_dcd,
+            $nb_impliques
+        );
+        $operateur = isset($_SESSION['user']['nom']) ? trim($_SESSION['user']['nom']) : 'Automatique';
+        $stmt_mc = $pdo->prepare("INSERT INTO main_courante (intervention_id, expediteur, destinataire, message, moyen_com, operateur) VALUES (?, ?, ?, ?, ?, ?)");
+        $stmt_mc->execute([$intervention_id, 'Système', 'Main Courante', $msg_denombrement, 'Interface Web', $operateur]);
+    }
+
     header("Location: dashboard.php?id=" . $intervention_id);
     exit;
 }
@@ -73,6 +106,14 @@ $stmt = $pdo->prepare("SELECT * FROM moyens WHERE intervention_id = ? ORDER BY t
 $stmt->execute([$intervention_id]);
 $moyens = $stmt->fetchAll();
 
+// Récupération du personnel pour chaque moyen
+$personnel_par_moyen = [];
+foreach ($moyens as $moyen) {
+    $stmt_personnel = $pdo->prepare("SELECT role, nom_prenom FROM moyen_personnel WHERE moyen_id = ? ORDER BY role, nom_prenom");
+    $stmt_personnel->execute([$moyen['id']]);
+    $personnel_par_moyen[$moyen['id']] = $stmt_personnel->fetchAll();
+}
+
 $moyens_dispo = array_filter($moyens, fn($m) => $m['status'] === 'dispo');
 $moyens_engage = array_filter($moyens, fn($m) => $m['status'] === 'engage');
 
@@ -81,10 +122,15 @@ $stmt = $pdo->prepare("SELECT * FROM main_courante WHERE intervention_id = ? ORD
 $stmt->execute([$intervention_id]);
 $messages_recent = $stmt->fetchAll();
 
-// Récupération de TOUS les presets de messages (catégorie 'message')
-$stmt = $pdo->prepare("SELECT texte FROM presets_messages WHERE categorie = 'message' ORDER BY texte");
-$stmt->execute();
-$presets_messages = $stmt->fetchAll(PDO::FETCH_COLUMN);
+// Récupération des presets pour la grille Message Rapide (titre, is_quick_message = 1)
+$quick_presets = [];
+try {
+    $stmt = $pdo->prepare("SELECT titre, is_quick_message FROM presets_messages WHERE is_quick_message = 1 ORDER BY titre");
+    $stmt->execute();
+    $quick_presets = $stmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (PDOException $e) {
+    // Colonne is_quick_message ou titre absente si database_quick_messages.sql non exécuté
+}
 
 // Calcul des totaux
 $total_vpsp = count(array_filter($moyens_engage, fn($m) => $m['type'] === 'VPSP'));
@@ -279,9 +325,15 @@ foreach ($moyens_engage as $moyen) {
                 <a href="history.php" class="btn btn-outline-secondary btn-sm">
                     <i class="bi bi-clock-history"></i> Historique
                 </a>
-                <a href="export_pdf.php?id=<?php echo $intervention_id; ?>" class="btn btn-outline-danger btn-sm" target="_blank">
-                    <i class="bi bi-file-pdf"></i> Export PDF
-                </a>
+                <div class="dropdown">
+                    <button class="btn btn-outline-danger btn-sm dropdown-toggle" type="button" id="dropdownPdf" data-bs-toggle="dropdown" aria-expanded="false">
+                        <i class="bi bi-file-pdf"></i> PDF
+                    </button>
+                    <ul class="dropdown-menu" aria-labelledby="dropdownPdf">
+                        <li><a class="dropdown-item" href="export_pdf.php?id=<?php echo $intervention_id; ?>" target="_blank"><i class="bi bi-file-earmark-pdf"></i> Générer PDF</a></li>
+                        <li><button type="button" class="dropdown-item" data-bs-toggle="modal" data-bs-target="#modal-commentaires"><i class="bi bi-chat-square-text"></i> Commentaires</button></li>
+                    </ul>
+                </div>
                 <a href="index.php" class="btn btn-outline-secondary btn-sm">
                     <i class="bi bi-plus-circle"></i> Nouvelle
                 </a>
@@ -402,9 +454,12 @@ foreach ($moyens_engage as $moyen) {
                                         <option value="Autre">Autre</option>
                                     </select>
                                 </div>
-                                <div class="col-3">
+                                <div class="col-3" id="groupe-nom-indicatif">
                                     <input type="text" class="form-control form-control-sm" name="nom_indicatif" id="input-nom-indicatif"
                                            placeholder="Nom/Indicatif" required>
+                                    <select class="form-select form-select-sm d-none" id="select-nom-indicatif" style="min-width: 160px;">
+                                        <option value="">Choisir...</option>
+                                    </select>
                                 </div>
                                 <div class="col-3" id="groupe-fonction" style="display: none;">
                                     <input type="text" class="form-control form-control-sm" name="fonction" 
@@ -453,6 +508,94 @@ foreach ($moyens_engage as $moyen) {
                         </form>
                         <?php endif; ?>
 
+                        <!-- Modale pour la composition de l'équipage (ajout) -->
+                        <div class="modal fade" id="modal-equipage" tabindex="-1" aria-labelledby="modalEquipageLabel" aria-hidden="true">
+                            <div class="modal-dialog modal-dialog-scrollable">
+                                <div class="modal-content">
+                                    <div class="modal-header">
+                                        <h5 class="modal-title" id="modalEquipageLabel">
+                                            <i class="bi bi-people"></i> Composition de l'équipage
+                                        </h5>
+                                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                    </div>
+                                    <div class="modal-body">
+                                        <p class="text-muted small mb-3">Veuillez saisir les noms et prénoms des équipiers :</p>
+                                        <div id="equipage-fields"></div>
+                                    </div>
+                                    <div class="modal-footer">
+                                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
+                                        <button type="button" class="btn btn-danger" id="btn-valider-equipage">
+                                            <i class="bi bi-check-circle"></i> Valider et Ajouter le moyen
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Modale pour l'ajustement de l'équipage (modification) -->
+                        <div class="modal fade" id="modal-ajustement-equipage" tabindex="-1" aria-labelledby="modalAjustementLabel" aria-hidden="true">
+                            <div class="modal-dialog modal-dialog-scrollable">
+                                <div class="modal-content">
+                                    <div class="modal-header">
+                                        <h5 class="modal-title" id="modalAjustementLabel">
+                                            <i class="bi bi-people"></i> Ajustement de l'équipage
+                                        </h5>
+                                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                    </div>
+                                    <div class="modal-body">
+                                        <p class="text-muted small mb-3">Ajustez la composition de l'équipage selon les modifications :</p>
+                                        <div id="ajustement-fields"></div>
+                                    </div>
+                                    <div class="modal-footer">
+                                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
+                                        <button type="button" class="btn btn-danger" id="btn-confirmer-ajustement">
+                                            <i class="bi bi-check-circle"></i> Confirmer la modification
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Modale Commentaires de fin de mission -->
+                        <div class="modal fade" id="modal-commentaires" tabindex="-1" aria-labelledby="modalCommentairesLabel" aria-hidden="true">
+                            <div class="modal-dialog modal-dialog-scrollable modal-lg">
+                                <div class="modal-content">
+                                    <div class="modal-header">
+                                        <h5 class="modal-title" id="modalCommentairesLabel"><i class="bi bi-chat-square-text"></i> Commentaires et retours mission</h5>
+                                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                    </div>
+                                    <div class="modal-body">
+                                        <div class="mb-3">
+                                            <label class="form-label fw-semibold">Points positifs</label>
+                                            <textarea class="form-control" id="commentaire-points-positifs" name="points_positifs" rows="3" placeholder="Saisissez les points positifs..."></textarea>
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="form-label fw-semibold">Points négatifs</label>
+                                            <textarea class="form-control" id="commentaire-points-negatifs" name="points_negatifs" rows="3" placeholder="Saisissez les points négatifs..."></textarea>
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="form-label fw-semibold">Problèmes internes CRF</label>
+                                            <textarea class="form-control" id="commentaire-problemes-internes" name="problemes_internes_crf" rows="3" placeholder="Problèmes internes CRF..."></textarea>
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="form-label fw-semibold">Problèmes externes CRF</label>
+                                            <textarea class="form-control" id="commentaire-problemes-externes" name="problemes_externes_crf" rows="3" placeholder="Problèmes externes CRF..."></textarea>
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="form-label fw-semibold">Zone libre</label>
+                                            <textarea class="form-control" id="commentaire-zone-libre" name="zone_libre" rows="3" placeholder="Remarques libres..."></textarea>
+                                        </div>
+                                    </div>
+                                    <div class="modal-footer">
+                                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fermer</button>
+                                        <button type="button" class="btn btn-danger" id="btn-enregistrer-commentaires">
+                                            <i class="bi bi-save"></i> Enregistrer
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
                         <div class="mb-3">
                             <h6 class="text-success mb-2"><i class="bi bi-check-circle"></i> Disponibles (<?php echo count($moyens_dispo); ?>)</h6>
                             <div id="liste-dispo">
@@ -472,6 +615,8 @@ foreach ($moyens_engage as $moyen) {
                                         if ($moyen['type'] === 'VL') $badge_class = 'bg-info';
                                         elseif ($moyen['type'] === 'Autre') $badge_class = 'bg-secondary';
                                         elseif ($moyen['type'] === 'BENEVOLE' || $moyen['type'] === 'Benevole') $badge_class = 'bg-warning text-dark';
+                                        
+                                        $personnel_moyen = $personnel_par_moyen[$moyen['id']] ?? [];
                                     ?>
                                         <div class="moyen-item" data-moyen-id="<?php echo $moyen['id']; ?>">
                                             <div class="view-mode d-flex align-items-center gap-2" style="flex: 1;">
@@ -497,10 +642,39 @@ foreach ($moyens_engage as $moyen) {
                                                         <span class="badge rounded-pill bg-light text-dark border"><?php echo $nb_logisticien; ?> Log</span>
                                                     <?php endif; ?>
                                                 </div>
+                                                <?php if (!empty($personnel_moyen)): ?>
+                                                    <button class="btn btn-sm btn-outline-info ms-2" type="button" data-bs-toggle="collapse" 
+                                                            data-bs-target="#equipage-dispo-<?php echo $moyen['id']; ?>" 
+                                                            aria-expanded="false" aria-controls="equipage-dispo-<?php echo $moyen['id']; ?>">
+                                                        <i class="bi bi-people"></i> Voir l'équipage
+                                                    </button>
+                                                <?php endif; ?>
                                             </div>
                                             
+                                            <?php if (!empty($personnel_moyen)): ?>
+                                                <div class="collapse w-100 mt-2" id="equipage-dispo-<?php echo $moyen['id']; ?>">
+                                                    <div class="card card-body bg-light">
+                                                        <h6 class="text-secondary mb-2"><i class="bi bi-people-fill"></i> Composition de l'équipage</h6>
+                                                        <ul class="list-unstyled mb-0">
+                                                            <?php 
+                                                            $personnel_par_role = [];
+                                                            foreach ($personnel_moyen as $p) {
+                                                                $personnel_par_role[$p['role']][] = $p['nom_prenom'];
+                                                            }
+                                                            foreach ($personnel_par_role as $role => $noms): 
+                                                            ?>
+                                                                <li class="mb-1">
+                                                                    <strong><?php echo htmlspecialchars($role); ?>:</strong> 
+                                                                    <?php echo htmlspecialchars(implode(', ', $noms)); ?>
+                                                                </li>
+                                                            <?php endforeach; ?>
+                                                        </ul>
+                                                    </div>
+                                                </div>
+                                            <?php endif; ?>
+                                            
                                             <div class="edit-mode d-none d-flex align-items-center gap-2 flex-wrap" style="flex: 1;">
-                                                <select class="form-select form-select-sm" name="type" style="width: auto; max-width: 120px;" onchange="gererAffichageFonctionEdit(this)">
+                                                <select class="form-select form-select-sm" name="type" style="width: auto; max-width: 120px;" onchange="gererAffichageFonctionEdit(this); gererAffichageIndicatifEdit(this.closest('.edit-mode'));">
                                                     <option value="VPSP" <?php echo $moyen['type'] === 'VPSP' ? 'selected' : ''; ?>>VPSP</option>
                                                     <option value="VL" <?php echo $moyen['type'] === 'VL' ? 'selected' : ''; ?>>VL</option>
                                                     <option value="MINIBUS" <?php echo $moyen['type'] === 'MINIBUS' ? 'selected' : ''; ?>>MINIBUS</option>
@@ -512,9 +686,12 @@ foreach ($moyens_engage as $moyen) {
                                                     <option value="BSPP" <?php echo $moyen['type'] === 'BSPP' ? 'selected' : ''; ?>>BSPP</option>
                                                     <option value="Autre" <?php echo $moyen['type'] === 'Autre' ? 'selected' : ''; ?>>Autre</option>
                                                 </select>
-                                                <input type="text" class="form-control form-control-sm" 
+                                                <input type="text" class="form-control form-control-sm input-nom-indicatif-edit" 
                                                        name="nom_indicatif" value="<?php echo htmlspecialchars($moyen['nom_indicatif']); ?>" 
                                                        style="width: auto; min-width: 80px;">
+                                                <select class="form-select form-select-sm select-nom-indicatif-edit d-none" style="width: auto; min-width: 160px;">
+                                                    <option value="">Choisir...</option>
+                                                </select>
                                                 <input type="text" class="form-control form-control-sm input-fonction-edit <?php echo $moyen['type'] === 'CADRE' ? '' : 'd-none'; ?>" 
                                                        name="fonction" value="<?php echo htmlspecialchars($moyen['fonction'] ?? ''); ?>" 
                                                        placeholder="Fonction" style="width: auto; min-width: 150px;">
@@ -602,6 +779,8 @@ foreach ($moyens_engage as $moyen) {
                                         if ($moyen['type'] === 'VL') $badge_class = 'bg-info';
                                         elseif ($moyen['type'] === 'Autre') $badge_class = 'bg-secondary';
                                         elseif ($moyen['type'] === 'BENEVOLE' || $moyen['type'] === 'Benevole') $badge_class = 'bg-warning text-dark';
+                                        
+                                        $personnel_moyen = $personnel_par_moyen[$moyen['id']] ?? [];
                                     ?>
                                         <div class="moyen-item" data-moyen-id="<?php echo $moyen['id']; ?>">
                                             <div class="view-mode d-flex align-items-center gap-2" style="flex: 1;">
@@ -627,10 +806,39 @@ foreach ($moyens_engage as $moyen) {
                                                         <span class="badge rounded-pill bg-light text-dark border"><?php echo $nb_logisticien; ?> Log</span>
                                                     <?php endif; ?>
                                                 </div>
+                                                <?php if (!empty($personnel_moyen)): ?>
+                                                    <button class="btn btn-sm btn-outline-info ms-2" type="button" data-bs-toggle="collapse" 
+                                                            data-bs-target="#equipage-engage-<?php echo $moyen['id']; ?>" 
+                                                            aria-expanded="false" aria-controls="equipage-engage-<?php echo $moyen['id']; ?>">
+                                                        <i class="bi bi-people"></i> Voir l'équipage
+                                                    </button>
+                                                <?php endif; ?>
                                             </div>
                                             
+                                            <?php if (!empty($personnel_moyen)): ?>
+                                                <div class="collapse w-100 mt-2" id="equipage-engage-<?php echo $moyen['id']; ?>">
+                                                    <div class="card card-body bg-light">
+                                                        <h6 class="text-secondary mb-2"><i class="bi bi-people-fill"></i> Composition de l'équipage</h6>
+                                                        <ul class="list-unstyled mb-0">
+                                                            <?php 
+                                                            $personnel_par_role = [];
+                                                            foreach ($personnel_moyen as $p) {
+                                                                $personnel_par_role[$p['role']][] = $p['nom_prenom'];
+                                                            }
+                                                            foreach ($personnel_par_role as $role => $noms): 
+                                                            ?>
+                                                                <li class="mb-1">
+                                                                    <strong><?php echo htmlspecialchars($role); ?>:</strong> 
+                                                                    <?php echo htmlspecialchars(implode(', ', $noms)); ?>
+                                                                </li>
+                                                            <?php endforeach; ?>
+                                                        </ul>
+                                                    </div>
+                                                </div>
+                                            <?php endif; ?>
+                                            
                                             <div class="edit-mode d-none d-flex align-items-center gap-2 flex-wrap" style="flex: 1;">
-                                                <select class="form-select form-select-sm" name="type" style="width: auto; max-width: 120px;" onchange="gererAffichageFonctionEdit(this)">
+                                                <select class="form-select form-select-sm" name="type" style="width: auto; max-width: 120px;" onchange="gererAffichageFonctionEdit(this); gererAffichageIndicatifEdit(this.closest('.edit-mode'));">
                                                     <option value="VPSP" <?php echo $moyen['type'] === 'VPSP' ? 'selected' : ''; ?>>VPSP</option>
                                                     <option value="VL" <?php echo $moyen['type'] === 'VL' ? 'selected' : ''; ?>>VL</option>
                                                     <option value="MINIBUS" <?php echo $moyen['type'] === 'MINIBUS' ? 'selected' : ''; ?>>MINIBUS</option>
@@ -642,9 +850,12 @@ foreach ($moyens_engage as $moyen) {
                                                     <option value="BSPP" <?php echo $moyen['type'] === 'BSPP' ? 'selected' : ''; ?>>BSPP</option>
                                                     <option value="Autre" <?php echo $moyen['type'] === 'Autre' ? 'selected' : ''; ?>>Autre</option>
                                                 </select>
-                                                <input type="text" class="form-control form-control-sm" 
+                                                <input type="text" class="form-control form-control-sm input-nom-indicatif-edit" 
                                                        name="nom_indicatif" value="<?php echo htmlspecialchars($moyen['nom_indicatif']); ?>" 
                                                        style="width: auto; min-width: 80px;">
+                                                <select class="form-select form-select-sm select-nom-indicatif-edit d-none" style="width: auto; min-width: 160px;">
+                                                    <option value="">Choisir...</option>
+                                                </select>
                                                 <input type="text" class="form-control form-control-sm input-fonction-edit <?php echo $moyen['type'] === 'CADRE' ? '' : 'd-none'; ?>" 
                                                        name="fonction" value="<?php echo htmlspecialchars($moyen['fonction'] ?? ''); ?>" 
                                                        placeholder="Fonction" style="width: auto; min-width: 150px;">
@@ -776,14 +987,14 @@ foreach ($moyens_engage as $moyen) {
                                 
                                 <input type="hidden" id="hidden-message" name="message" required>
                                 
-                                <?php if (!empty($presets_messages)): ?>
+                                <?php if (!empty($quick_presets)): ?>
                                 <div class="mb-2">
                                     <small class="text-muted">Sélectionner un message :</small>
                                     <div class="presets-grid mt-1" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 6px; max-height: 200px; overflow-y: auto; border: 1px solid #dee2e6; border-radius: 4px; padding: 8px; background-color: #f8f9fa;">
-                                            <?php foreach ($presets_messages as $preset): ?>
+                                            <?php foreach ($quick_presets as $preset): ?>
                                                 <button type="button" class="btn btn-sm btn-outline-secondary preset-btn" 
-                                                        data-message="<?php echo htmlspecialchars($preset, ENT_QUOTES, 'UTF-8'); ?>">
-                                                <?php echo htmlspecialchars($preset); ?>
+                                                        data-message="<?php echo htmlspecialchars($preset['titre'], ENT_QUOTES, 'UTF-8'); ?>">
+                                                <?php echo htmlspecialchars($preset['titre']); ?>
                                             </button>
                                             <?php endforeach; ?>
                                     </div>
@@ -857,22 +1068,109 @@ foreach ($moyens_engage as $moyen) {
     <script>
         const INTERVENTION_ID = <?php echo $intervention_id; ?>;
 
+        // Listes déroulantes Nom/Indicatif pour BSPP et SAMU
+        const INDICATIFS_BSPP = ['Grp. Habitation', 'Grp.PMA', 'Grp.Évacuation', 'Grp.CAI', 'Grp.SUA', 'Renfort.Habitation', 'Plan Rouge', 'Plan Rouge Alpha', 'Plan Jaune', 'AR PLCL', 'AR CHPT', 'AR MENIL', 'AR VITRY', 'AR MASS', 'AR MTRL', 'VLI_G3', 'VLI_G2', 'VLI_G1'];
+        const INDICATIFS_SAMU = ['UMH_Garches', 'UMH_Beaujon', 'UMH_Louis Mourrier', 'UMH_Beclere (Ped)', 'UMH_75', 'UMH_93', 'UMH_94', 'UMH_78', 'UMH_95', 'UMR', 'VLOG', 'CUMP'];
+
+        // Modale Commentaires : chargement à l'ouverture, enregistrement au clic
+        (function() {
+            var modalCommentaires = document.getElementById('modal-commentaires');
+            if (modalCommentaires) {
+                modalCommentaires.addEventListener('show.bs.modal', function() {
+                    fetch('api_commentaires.php?intervention_id=' + INTERVENTION_ID)
+                        .then(function(r) { return r.json(); })
+                        .then(function(res) {
+                            if (res.status === 'success' && res.data) {
+                                var d = res.data;
+                                var el = function(id) { return document.getElementById(id); };
+                                if (el('commentaire-points-positifs')) el('commentaire-points-positifs').value = d.points_positifs || '';
+                                if (el('commentaire-points-negatifs')) el('commentaire-points-negatifs').value = d.points_negatifs || '';
+                                if (el('commentaire-problemes-internes')) el('commentaire-problemes-internes').value = d.problemes_internes_crf || '';
+                                if (el('commentaire-problemes-externes')) el('commentaire-problemes-externes').value = d.problemes_externes_crf || '';
+                                if (el('commentaire-zone-libre')) el('commentaire-zone-libre').value = d.zone_libre || '';
+                            }
+                        })
+                        .catch(function() {});
+                });
+            }
+            var btnEnregistrerCommentaires = document.getElementById('btn-enregistrer-commentaires');
+            if (btnEnregistrerCommentaires) {
+                btnEnregistrerCommentaires.addEventListener('click', function() {
+                    var payload = {
+                        intervention_id: INTERVENTION_ID,
+                        points_positifs: document.getElementById('commentaire-points-positifs').value,
+                        points_negatifs: document.getElementById('commentaire-points-negatifs').value,
+                        problemes_internes_crf: document.getElementById('commentaire-problemes-internes').value,
+                        problemes_externes_crf: document.getElementById('commentaire-problemes-externes').value,
+                        zone_libre: document.getElementById('commentaire-zone-libre').value
+                    };
+                    btnEnregistrerCommentaires.disabled = true;
+                    fetch('api_commentaires.php', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    })
+                    .then(function(r) { return r.json(); })
+                    .then(function(res) {
+                        if (res.status === 'success') {
+                            var toast = document.createElement('div');
+                            toast.className = 'alert alert-success alert-dismissible fade show position-fixed top-0 start-50 translate-middle-x mt-3';
+                            toast.style.zIndex = '9999';
+                            toast.innerHTML = '<i class="bi bi-check-circle"></i> Commentaires enregistrés.<button type="button" class="btn-close" data-bs-dismiss="alert"></button>';
+                            document.body.appendChild(toast);
+                            setTimeout(function() { toast.remove(); }, 3000);
+                        } else {
+                            alert('Erreur : ' + (res.message || 'Enregistrement impossible'));
+                        }
+                    })
+                    .catch(function() { alert('Erreur lors de l\'enregistrement'); })
+                    .finally(function() { btnEnregistrerCommentaires.disabled = false; });
+                });
+            }
+        })();
+
         // Gestion de l'affichage conditionnel du formulaire d'ajout de moyen
         document.addEventListener('DOMContentLoaded', function() {
             const selectType = document.getElementById('select-type-moyen');
             const groupeEquipage = document.getElementById('groupe-equipage');
             const groupeFonction = document.getElementById('groupe-fonction');
             const inputNomIndicatif = document.getElementById('input-nom-indicatif');
+            const selectNomIndicatif = document.getElementById('select-nom-indicatif');
             const hiddenNbPse = document.getElementById('hidden-nb-pse');
             const hiddenNbCh = document.getElementById('hidden-nb-ch');
             const hiddenNbCi = document.getElementById('hidden-nb-ci');
             
-            // Fonction pour gérer l'affichage des champs équipage et fonction
+            // Fonction pour gérer l'affichage des champs équipage, fonction et indicatif (BSPP/SAMU)
             function gererAffichageEquipage() {
                 const typeSelectionne = selectType.value;
                 const hiddenNbCadreLocal = document.getElementById('hidden-nb-cadre-local');
                 const hiddenNbCadreDept = document.getElementById('hidden-nb-cadre-dept');
                 const hiddenNbLogisticien = document.getElementById('hidden-nb-logisticien');
+                
+                // Gestion Nom/Indicatif : liste déroulante pour BSPP et SAMU, champ texte sinon
+                if (selectNomIndicatif) {
+                    if (typeSelectionne === 'BSPP' || typeSelectionne === 'SAMU') {
+                        const options = typeSelectionne === 'BSPP' ? INDICATIFS_BSPP : INDICATIFS_SAMU;
+                        selectNomIndicatif.innerHTML = '<option value="">Choisir...</option>' + options.map(function(o) { return '<option value="' + o.replace(/"/g, '&quot;') + '">' + o + '</option>'; }).join('');
+                        selectNomIndicatif.classList.remove('d-none');
+                        selectNomIndicatif.disabled = false;
+                        selectNomIndicatif.required = true;
+                        inputNomIndicatif.classList.add('d-none');
+                        inputNomIndicatif.disabled = true;
+                        inputNomIndicatif.required = false;
+                        inputNomIndicatif.removeAttribute('name');
+                        selectNomIndicatif.setAttribute('name', 'nom_indicatif');
+                    } else {
+                        selectNomIndicatif.classList.add('d-none');
+                        selectNomIndicatif.disabled = true;
+                        selectNomIndicatif.removeAttribute('name');
+                        selectNomIndicatif.required = false;
+                        inputNomIndicatif.classList.remove('d-none');
+                        inputNomIndicatif.disabled = false;
+                        inputNomIndicatif.required = true;
+                        inputNomIndicatif.setAttribute('name', 'nom_indicatif');
+                    }
+                }
                 
                 // Gestion du champ fonction pour CADRE
                 if (typeSelectionne === 'CADRE') {
@@ -919,6 +1217,106 @@ foreach ($moyens_engage as $moyen) {
             
             // Appeler une fois au chargement pour initialiser l'état
             gererAffichageEquipage();
+        });
+
+        // Interception du formulaire d'ajout de moyen pour gérer la modale d'équipage
+        document.addEventListener('DOMContentLoaded', function() {
+            const formAjoutMoyen = document.getElementById('form-ajout-moyen');
+            const modalEquipage = new bootstrap.Modal(document.getElementById('modal-equipage'));
+            const equipageFields = document.getElementById('equipage-fields');
+            const btnValiderEquipage = document.getElementById('btn-valider-equipage');
+            
+            if (formAjoutMoyen) {
+                formAjoutMoyen.addEventListener('submit', function(e) {
+                    e.preventDefault();
+                    
+                    // Récupérer les valeurs des champs d'effectifs
+                    const nb_pse = parseInt(formAjoutMoyen.querySelector('input[name="nb_pse"]')?.value || 0) || 0;
+                    const nb_ch = parseInt(formAjoutMoyen.querySelector('input[name="nb_ch"]')?.value || 0) || 0;
+                    const nb_ci = parseInt(formAjoutMoyen.querySelector('input[name="nb_ci"]')?.value || 0) || 0;
+                    const nb_cadre_local = parseInt(formAjoutMoyen.querySelector('input[name="nb_cadre_local"]')?.value || 0) || 0;
+                    const nb_cadre_dept = parseInt(formAjoutMoyen.querySelector('input[name="nb_cadre_dept"]')?.value || 0) || 0;
+                    const nb_logisticien = parseInt(formAjoutMoyen.querySelector('input[name="nb_logisticien"]')?.value || 0) || 0;
+                    
+                    // Si tous les champs sont à 0 ou vides, soumettre directement
+                    if (nb_pse === 0 && nb_ch === 0 && nb_ci === 0 && nb_cadre_local === 0 && nb_cadre_dept === 0 && nb_logisticien === 0) {
+                        formAjoutMoyen.submit();
+                        return;
+                    }
+                    
+                    // Sinon, générer les champs dans la modale
+                    equipageFields.innerHTML = '';
+                    
+                    const roles = [
+                        { key: 'PSE', count: nb_pse, label: 'PSE' },
+                        { key: 'CH', count: nb_ch, label: 'CH' },
+                        { key: 'CI', count: nb_ci, label: 'CI' },
+                        { key: 'Cadre Local', count: nb_cadre_local, label: 'Cadre Local' },
+                        { key: 'Cadre Départemental', count: nb_cadre_dept, label: 'Cadre Départemental' },
+                        { key: 'Logisticien', count: nb_logisticien, label: 'Logisticien' }
+                    ];
+                    
+                    roles.forEach(role => {
+                        if (role.count > 0) {
+                            const roleGroup = document.createElement('div');
+                            roleGroup.className = 'mb-3';
+                            
+                            const roleLabel = document.createElement('h6');
+                            roleLabel.className = 'text-secondary mb-2';
+                            roleLabel.textContent = role.label + ' (' + role.count + ')';
+                            roleGroup.appendChild(roleLabel);
+                            
+                            for (let i = 1; i <= role.count; i++) {
+                                const inputGroup = document.createElement('div');
+                                inputGroup.className = 'mb-2';
+                                
+                                const label = document.createElement('label');
+                                label.className = 'form-label small';
+                                label.textContent = 'Nom/Prénom ' + role.label + ' ' + i;
+                                
+                                const input = document.createElement('input');
+                                input.type = 'text';
+                                input.className = 'form-control form-control-sm';
+                                input.name = 'personnel[' + role.key + '][]';
+                                input.placeholder = 'Ex: Jean Dupont';
+                                
+                                inputGroup.appendChild(label);
+                                inputGroup.appendChild(input);
+                                roleGroup.appendChild(inputGroup);
+                            }
+                            
+                            equipageFields.appendChild(roleGroup);
+                        }
+                    });
+                    
+                    // Ouvrir la modale
+                    modalEquipage.show();
+                });
+            }
+            
+            // Gestion du bouton "Valider et Ajouter le moyen"
+            if (btnValiderEquipage) {
+                btnValiderEquipage.addEventListener('click', function() {
+                    // Supprimer les anciens champs personnel s'ils existent
+                    formAjoutMoyen.querySelectorAll('input[name^="personnel["]').forEach(input => input.remove());
+                    
+                    // Récupérer tous les champs de la modale et les injecter dans le formulaire principal
+                    const inputsPersonnel = equipageFields.querySelectorAll('input[name^="personnel["]');
+                    inputsPersonnel.forEach(input => {
+                        const newInput = document.createElement('input');
+                        newInput.type = 'hidden';
+                        newInput.name = input.name;
+                        newInput.value = input.value.trim();
+                        if (newInput.value) {
+                            formAjoutMoyen.appendChild(newInput);
+                        }
+                    });
+                    
+                    // Fermer la modale et soumettre le formulaire
+                    modalEquipage.hide();
+                    formAjoutMoyen.submit();
+                });
+            }
         });
 
         // Fonction pour modifier le bilan (compteurs +/-)
@@ -1005,6 +1403,31 @@ foreach ($moyens_engage as $moyen) {
             }
         }
         
+        // Gestion des messages rapides : utilise Expéditeur, Destinataire et Moyen Com. du formulaire, envoi via envoyerMessage()
+        document.addEventListener('DOMContentLoaded', function() {
+            document.addEventListener('click', function(e) {
+                const btn = e.target.classList.contains('quick-msg-btn') ? e.target : e.target.closest('.quick-msg-btn');
+                if (!btn) return;
+                e.preventDefault();
+                const titre = btn.getAttribute('data-titre');
+                if (!titre) return;
+                const expediteur = document.getElementById('input-expediteur').value.trim();
+                if (!expediteur) {
+                    alert('Veuillez remplir l\'expéditeur (ouvrez "Message Rapide" et renseignez le champ Expéditeur).');
+                    var formRapide = document.getElementById('form-message-rapide');
+                    if (formRapide) formRapide.style.display = 'block';
+                    return;
+                }
+                var destinataireEl = document.getElementById('input-destinataire');
+                if (destinataireEl && !destinataireEl.value.trim()) {
+                    destinataireEl.value = 'Main Courante';
+                }
+                document.getElementById('hidden-message').value = titre;
+                var fakeEv = { preventDefault: function() {} };
+                envoyerMessage(fakeEv);
+            });
+        });
+
         // Gestion de la sélection des presets
         document.addEventListener('DOMContentLoaded', function() {
             // Délégation d'événement pour les boutons presets
@@ -1189,6 +1612,7 @@ foreach ($moyens_engage as $moyen) {
 
         // Gestion de l'édition inline des moyens
         let moyenEnEdition = null;
+        let anciennesValeursEffectifs = {}; // Stockage des anciennes valeurs d'effectifs
 
         function toggleEditMoyen(moyenId) {
             const moyenItem = document.querySelector(`.moyen-item[data-moyen-id="${moyenId}"]`);
@@ -1217,9 +1641,20 @@ foreach ($moyens_engage as $moyen) {
                 btnEdit.classList.remove('btn-outline-secondary');
                 btnEdit.classList.add('btn-success');
                 
-                // Initialiser l'affichage du champ fonction selon le type
+                // Stocker les anciennes valeurs d'effectifs
+                anciennesValeursEffectifs[moyenId] = {
+                    nb_pse: parseInt(editMode.querySelector('input[name="nb_pse"]').value) || 0,
+                    nb_ch: parseInt(editMode.querySelector('input[name="nb_ch"]').value) || 0,
+                    nb_ci: parseInt(editMode.querySelector('input[name="nb_ci"]').value) || 0,
+                    nb_cadre_local: parseInt(editMode.querySelector('input[name="nb_cadre_local"]').value) || 0,
+                    nb_cadre_dept: parseInt(editMode.querySelector('input[name="nb_cadre_dept"]').value) || 0,
+                    nb_logisticien: parseInt(editMode.querySelector('input[name="nb_logisticien"]').value) || 0
+                };
+                
+                // Initialiser l'affichage du champ fonction et indicatif (BSPP/SAMU) selon le type
                 const selectType = editMode.querySelector('select[name="type"]');
                 gererAffichageFonctionEdit(selectType);
+                gererAffichageIndicatifEdit(editMode);
                 
                 // Afficher le bouton de suppression
                 const btnDelete = moyenItem.querySelector('.btn-delete-moyen');
@@ -1258,14 +1693,45 @@ foreach ($moyens_engage as $moyen) {
         function gererAffichageFonctionEdit(selectElement) {
             const editMode = selectElement.closest('.edit-mode');
             const inputFonction = editMode.querySelector('.input-fonction-edit');
-            const inputNomIndicatif = editMode.querySelector('input[name="nom_indicatif"]');
-            
-            if (selectElement.value === 'CADRE') {
-                inputFonction.classList.remove('d-none');
-                inputNomIndicatif.placeholder = 'Nom / Prénom';
+            const inputNomIndicatif = editMode.querySelector('.input-nom-indicatif-edit');
+            if (inputNomIndicatif) {
+                if (selectElement.value === 'CADRE') {
+                    inputNomIndicatif.placeholder = 'Nom / Prénom';
+                } else {
+                    inputNomIndicatif.placeholder = 'Nom/Indicatif';
+                }
+            }
+            if (inputFonction) {
+                if (selectElement.value === 'CADRE') {
+                    inputFonction.classList.remove('d-none');
+                } else {
+                    inputFonction.classList.add('d-none');
+                }
+            }
+        }
+
+        function gererAffichageIndicatifEdit(editMode) {
+            const selectType = editMode.querySelector('select[name="type"]');
+            const inputIndicatif = editMode.querySelector('.input-nom-indicatif-edit');
+            const selectIndicatif = editMode.querySelector('.select-nom-indicatif-edit');
+            if (!selectType || !inputIndicatif || !selectIndicatif) return;
+            const type = selectType.value;
+            if (type === 'BSPP' || type === 'SAMU') {
+                const options = type === 'BSPP' ? INDICATIFS_BSPP : INDICATIFS_SAMU;
+                selectIndicatif.innerHTML = '<option value="">Choisir...</option>' + options.map(function(o) { return '<option value="' + String(o).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;') + '">' + String(o).replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</option>'; }).join('');
+                const currentVal = inputIndicatif.value.trim();
+                if (options.indexOf(currentVal) !== -1) selectIndicatif.value = currentVal;
+                else if (currentVal) selectIndicatif.value = currentVal;
+                selectIndicatif.classList.remove('d-none');
+                selectIndicatif.setAttribute('name', 'nom_indicatif');
+                inputIndicatif.classList.add('d-none');
+                inputIndicatif.removeAttribute('name');
             } else {
-                inputFonction.classList.add('d-none');
-                inputNomIndicatif.placeholder = 'Nom/Indicatif';
+                if (selectIndicatif.getAttribute('name') === 'nom_indicatif') inputIndicatif.value = selectIndicatif.value || inputIndicatif.value;
+                selectIndicatif.classList.add('d-none');
+                selectIndicatif.removeAttribute('name');
+                inputIndicatif.classList.remove('d-none');
+                inputIndicatif.setAttribute('name', 'nom_indicatif');
             }
         }
 
@@ -1276,7 +1742,9 @@ foreach ($moyens_engage as $moyen) {
             const editMode = moyenItem.querySelector('.edit-mode');
 
             const type = editMode.querySelector('select[name="type"]').value;
-            const nom_indicatif = editMode.querySelector('input[name="nom_indicatif"]').value.trim();
+            const inputIndicatif = editMode.querySelector('.input-nom-indicatif-edit');
+            const selectIndicatif = editMode.querySelector('.select-nom-indicatif-edit');
+            const nom_indicatif = (selectIndicatif && selectIndicatif.getAttribute('name') === 'nom_indicatif' ? selectIndicatif.value : (inputIndicatif ? inputIndicatif.value : '')).trim();
             const inputFonction = editMode.querySelector('input[name="fonction"]');
             const fonction = inputFonction ? inputFonction.value.trim() : '';
             const nb_pse = parseInt(editMode.querySelector('input[name="nb_pse"]').value) || 0;
@@ -1290,6 +1758,222 @@ foreach ($moyens_engage as $moyen) {
                 alert('Le nom indicatif est requis');
                 return;
             }
+
+            // Récupérer les anciennes valeurs
+            const anciennes = anciennesValeursEffectifs[moyenId] || {
+                nb_pse: 0, nb_ch: 0, nb_ci: 0, nb_cadre_local: 0, nb_cadre_dept: 0, nb_logisticien: 0
+            };
+
+            // Calculer les deltas
+            const deltas = {
+                nb_pse: nb_pse - anciennes.nb_pse,
+                nb_ch: nb_ch - anciennes.nb_ch,
+                nb_ci: nb_ci - anciennes.nb_ci,
+                nb_cadre_local: nb_cadre_local - anciennes.nb_cadre_local,
+                nb_cadre_dept: nb_cadre_dept - anciennes.nb_cadre_dept,
+                nb_logisticien: nb_logisticien - anciennes.nb_logisticien
+            };
+
+            // Vérifier s'il y a des changements d'effectifs
+            const hasChanges = Object.values(deltas).some(delta => delta !== 0);
+
+            if (!hasChanges) {
+                // Pas de changement d'effectif, soumettre directement
+                envoyerMiseAJourMoyen(moyenId, moyenItem, type, nom_indicatif, fonction, nb_pse, nb_ch, nb_ci, nb_cadre_local, nb_cadre_dept, nb_logisticien, [], {});
+            } else {
+                // Il y a des changements, ouvrir la modale d'ajustement
+                preparerModaleAjustement(moyenId, moyenItem, type, nom_indicatif, fonction, nb_pse, nb_ch, nb_ci, nb_cadre_local, nb_cadre_dept, nb_logisticien, deltas);
+            }
+        }
+
+        function preparerModaleAjustement(moyenId, moyenItem, type, nom_indicatif, fonction, nb_pse, nb_ch, nb_ci, nb_cadre_local, nb_cadre_dept, nb_logisticien, deltas) {
+            const modalAjustement = new bootstrap.Modal(document.getElementById('modal-ajustement-equipage'));
+            const ajustementFields = document.getElementById('ajustement-fields');
+            
+            // Récupérer le personnel actuel
+            fetch(`api_get_personnel.php?moyen_id=${moyenId}`)
+                .then(response => response.json())
+                .then(result => {
+                    if (result.status !== 'success') {
+                        alert('Erreur lors de la récupération du personnel');
+                        return;
+                    }
+
+                    const personnelActuel = result.data || [];
+                    
+                    // Organiser le personnel par rôle
+                    const personnelParRole = {};
+                    personnelActuel.forEach(p => {
+                        if (!personnelParRole[p.role]) {
+                            personnelParRole[p.role] = [];
+                        }
+                        personnelParRole[p.role].push(p);
+                    });
+
+                    // Mapping des rôles
+                    const rolesMapping = {
+                        nb_pse: 'PSE',
+                        nb_ch: 'CH',
+                        nb_ci: 'CI',
+                        nb_cadre_local: 'Cadre Local',
+                        nb_cadre_dept: 'Cadre Départemental',
+                        nb_logisticien: 'Logisticien'
+                    };
+
+                    ajustementFields.innerHTML = '';
+                    let hasContent = false;
+
+                    // Traiter chaque rôle
+                    Object.keys(deltas).forEach(key => {
+                        const delta = deltas[key];
+                        const role = rolesMapping[key];
+                        const personnelRole = personnelParRole[role] || [];
+
+                        if (delta < 0) {
+                            // Diminution : afficher les personnes à retirer
+                            hasContent = true;
+                            const nbARetirer = Math.abs(delta);
+                            const roleGroup = document.createElement('div');
+                            roleGroup.className = 'mb-4 p-3 border rounded';
+                            
+                            const roleLabel = document.createElement('h6');
+                            roleLabel.className = 'text-danger mb-2';
+                            roleLabel.innerHTML = `<i class="bi bi-dash-circle"></i> ${role} : Retirer ${nbARetirer} personne(s)`;
+                            roleGroup.appendChild(roleLabel);
+
+                            if (personnelRole.length === 0) {
+                                const alert = document.createElement('div');
+                                alert.className = 'alert alert-warning';
+                                alert.textContent = 'Aucune personne assignée à ce rôle.';
+                                roleGroup.appendChild(alert);
+                            } else {
+                                const info = document.createElement('p');
+                                info.className = 'text-muted small mb-2';
+                                info.textContent = `Sélectionnez ${nbARetirer} personne(s) à retirer :`;
+                                roleGroup.appendChild(info);
+
+                                personnelRole.forEach(personne => {
+                                    const checkboxGroup = document.createElement('div');
+                                    checkboxGroup.className = 'form-check mb-2';
+                                    
+                                    const checkbox = document.createElement('input');
+                                    checkbox.type = 'checkbox';
+                                    checkbox.className = 'form-check-input';
+                                    checkbox.id = `delete-${personne.id}`;
+                                    checkbox.value = personne.id;
+                                    checkbox.setAttribute('data-role', role);
+                                    
+                                    const label = document.createElement('label');
+                                    label.className = 'form-check-label';
+                                    label.htmlFor = checkbox.id;
+                                    label.textContent = personne.nom_prenom;
+                                    
+                                    checkboxGroup.appendChild(checkbox);
+                                    checkboxGroup.appendChild(label);
+                                    roleGroup.appendChild(checkboxGroup);
+                                });
+                            }
+
+                            ajustementFields.appendChild(roleGroup);
+                        } else if (delta > 0) {
+                            // Augmentation : afficher les champs pour ajouter
+                            hasContent = true;
+                            const nbAAjouter = delta;
+                            const roleGroup = document.createElement('div');
+                            roleGroup.className = 'mb-4 p-3 border rounded';
+                            
+                            const roleLabel = document.createElement('h6');
+                            roleLabel.className = 'text-success mb-2';
+                            roleLabel.innerHTML = `<i class="bi bi-plus-circle"></i> ${role} : Ajouter ${nbAAjouter} personne(s)`;
+                            roleGroup.appendChild(roleLabel);
+
+                            for (let i = 1; i <= nbAAjouter; i++) {
+                                const inputGroup = document.createElement('div');
+                                inputGroup.className = 'mb-2';
+                                
+                                const label = document.createElement('label');
+                                label.className = 'form-label small';
+                                label.textContent = `Nom/Prénom ${role} ${i}`;
+                                
+                                const input = document.createElement('input');
+                                input.type = 'text';
+                                input.className = 'form-control form-control-sm';
+                                input.name = `add-${role}-${i}`;
+                                input.setAttribute('data-role', role);
+                                input.placeholder = 'Ex: Jean Dupont';
+                                
+                                inputGroup.appendChild(label);
+                                inputGroup.appendChild(input);
+                                roleGroup.appendChild(inputGroup);
+                            }
+
+                            ajustementFields.appendChild(roleGroup);
+                        }
+                    });
+
+                    if (!hasContent) {
+                        ajustementFields.innerHTML = '<p class="text-muted">Aucun ajustement nécessaire.</p>';
+                    }
+
+                    // Stocker les données pour la soumission
+                    const btnConfirmer = document.getElementById('btn-confirmer-ajustement');
+                    btnConfirmer.onclick = function() {
+                        const personnelToDelete = [];
+                        const personnelToAdd = {};
+
+                        // Récupérer les IDs à supprimer
+                        ajustementFields.querySelectorAll('input[type="checkbox"]:checked').forEach(checkbox => {
+                            personnelToDelete.push(parseInt(checkbox.value));
+                        });
+
+                        // Récupérer les nouveaux noms à ajouter
+                        ajustementFields.querySelectorAll('input[type="text"][data-role]').forEach(input => {
+                            const nom = input.value.trim();
+                            if (nom) {
+                                const role = input.getAttribute('data-role');
+                                if (!personnelToAdd[role]) {
+                                    personnelToAdd[role] = [];
+                                }
+                                personnelToAdd[role].push(nom);
+                            }
+                        });
+
+                        // Vérifier que le nombre de personnes à retirer correspond au delta
+                        let isValid = true;
+                        Object.keys(deltas).forEach(key => {
+                            const delta = deltas[key];
+                            const role = rolesMapping[key];
+                            if (delta < 0) {
+                                const nbARetirer = Math.abs(delta);
+                                const nbSelectionnes = ajustementFields.querySelectorAll(`input[type="checkbox"][data-role="${role}"]:checked`).length;
+                                if (nbSelectionnes !== nbARetirer) {
+                                    isValid = false;
+                                    alert(`Vous devez sélectionner exactement ${nbARetirer} personne(s) à retirer pour le rôle ${role}.`);
+                                }
+                            }
+                        });
+
+                        if (!isValid) {
+                            return;
+                        }
+
+                        modalAjustement.hide();
+                        envoyerMiseAJourMoyen(moyenId, moyenItem, type, nom_indicatif, fonction, nb_pse, nb_ch, nb_ci, nb_cadre_local, nb_cadre_dept, nb_logisticien, personnelToDelete, personnelToAdd);
+                    };
+
+                    modalAjustement.show();
+                })
+                .catch(error => {
+                    console.error('Erreur:', error);
+                    alert('Erreur lors de la récupération du personnel');
+                });
+        }
+
+        function envoyerMiseAJourMoyen(moyenId, moyenItem, type, nom_indicatif, fonction, nb_pse, nb_ch, nb_ci, nb_cadre_local, nb_cadre_dept, nb_logisticien, personnelToDelete, personnelToAdd) {
+            const btnEdit = moyenItem.querySelector('.btn-edit-moyen');
+            const icon = btnEdit.querySelector('i');
+            const viewMode = moyenItem.querySelector('.view-mode');
+            const editMode = moyenItem.querySelector('.edit-mode');
 
             btnEdit.disabled = true;
             icon.className = 'bi bi-hourglass-split';
@@ -1305,7 +1989,9 @@ foreach ($moyens_engage as $moyen) {
                 nb_ci: nb_ci,
                 nb_cadre_local: nb_cadre_local,
                 nb_cadre_dept: nb_cadre_dept,
-                nb_logisticien: nb_logisticien
+                nb_logisticien: nb_logisticien,
+                personnel_to_delete: personnelToDelete,
+                personnel_to_add: personnelToAdd
             };
 
             fetch('api_update_moyen.php', {
@@ -1333,17 +2019,22 @@ foreach ($moyens_engage as $moyen) {
                     }
                     
                     moyenEnEdition = null;
+                    delete anciennesValeursEffectifs[moyenId];
                     mettreAJourTotaux();
+                    
+                    // Recharger la page pour mettre à jour l'affichage de l'équipage
+                    window.location.reload();
                 } else {
                     alert('Erreur : ' + (result.message || 'Erreur inconnue'));
+                    btnEdit.disabled = false;
+                    icon.className = 'bi bi-check-circle';
                 }
             })
             .catch(error => {
                 console.error('Erreur:', error);
                 alert('Erreur lors de la sauvegarde');
-            })
-            .finally(() => {
                 btnEdit.disabled = false;
+                icon.className = 'bi bi-check-circle';
             });
         }
 

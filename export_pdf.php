@@ -29,6 +29,16 @@ $stmt = $pdo->prepare("SELECT * FROM main_courante WHERE intervention_id = ? ORD
 $stmt->execute([$intervention_id]);
 $logs = $stmt->fetchAll();
 
+// Commentaires de fin de mission (si table existante)
+$commentaires = null;
+try {
+    $stmt = $pdo->prepare("SELECT points_positifs, points_negatifs, problemes_internes_crf, problemes_externes_crf, zone_libre FROM intervention_commentaires WHERE intervention_id = ?");
+    $stmt->execute([$intervention_id]);
+    $commentaires = $stmt->fetch(PDO::FETCH_ASSOC);
+} catch (PDOException $e) {
+    // Table absente ou erreur : on continue sans section commentaires
+}
+
 // 2. Classe PDF Personnalisée (Style "ACEL")
 // ---------------------------------------------------------
 class PDF_ACEL extends FPDF
@@ -336,6 +346,31 @@ if (empty($logs)) {
 
         // Remettre le curseur au bon endroit pour la suite
         $pdf->SetXY($x, $y + $hauteur);
+    }
+}
+
+// --- SECTION 6 : COMMENTAIRES ET RETOURS MISSION ---
+if ($commentaires && (trim($commentaires['points_positifs'] ?? '') !== '' || trim($commentaires['points_negatifs'] ?? '') !== '' || trim($commentaires['problemes_internes_crf'] ?? '') !== '' || trim($commentaires['problemes_externes_crf'] ?? '') !== '' || trim($commentaires['zone_libre'] ?? '') !== '')) {
+    $pdf->AddPage();
+    $pdf->TitreSection("Commentaires et Retours Mission");
+    $pdf->SetFont('Arial', '', 10);
+
+    $libelles = [
+        'points_positifs' => 'Points positifs',
+        'points_negatifs' => 'Points négatifs',
+        'problemes_internes_crf' => 'Problèmes internes CRF',
+        'problemes_externes_crf' => 'Problèmes externes CRF',
+        'zone_libre' => 'Zone libre'
+    ];
+    foreach ($libelles as $col => $label) {
+        $texte = trim($commentaires[$col] ?? '');
+        if ($texte !== '') {
+            $pdf->SetFont('Arial', 'B', 10);
+            $pdf->Cell(0, 6, $pdf->cv($label . ' :'), 0, 1, 'L');
+            $pdf->SetFont('Arial', '', 10);
+            $pdf->MultiCell(0, 5, $pdf->cv($texte));
+            $pdf->Ln(2);
+        }
     }
 }
 
