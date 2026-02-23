@@ -6,16 +6,15 @@ require_once __DIR__ . '/includes/db.php';
 $stmt = $pdo->prepare("SELECT * FROM interventions ORDER BY date_creation DESC");
 $stmt->execute();
 $interventions = $stmt->fetchAll();
+
+// Titre de page
+$page_title = "Historique des Interventions - Gestion des Opérations CRF";
 ?>
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Historique des Interventions - Gestion des Opérations CRF</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
-    <style>
+<?php require_once __DIR__ . '/includes/head.php'; ?>
+<style>
         body {
             background-color: #f8f9fa;
         }
@@ -36,7 +35,7 @@ $interventions = $stmt->fetchAll();
                 <span class="text-danger fw-bold">Historique des Interventions</span>
             </span>
             <div>
-                <a href="index.php" class="btn btn-danger btn-sm">
+                <a href="creation.php" class="btn btn-danger btn-sm">
                     <i class="bi bi-plus-circle"></i> Nouvelle Intervention
                 </a>
                 <span class="text-muted ms-3"><?php echo htmlspecialchars($_SESSION['user']['nom']); ?></span>

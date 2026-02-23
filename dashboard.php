@@ -5,7 +5,7 @@ require_once __DIR__ . '/includes/db.php';
 $intervention_id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 
 if (!$intervention_id) {
-    header("Location: index.php");
+    header("Location: creation.php");
     exit;
 }
 
@@ -137,6 +137,9 @@ $total_vpsp = count(array_filter($moyens_engage, fn($m) => $m['type'] === 'VPSP'
 $total_vl = count(array_filter($moyens_engage, fn($m) => $m['type'] === 'VL'));
 
 // Calcul du total des bénévoles : somme de toutes les qualifications pour tous les moyens engagés
+
+// Titre de page
+$page_title = "Dashboard - Intervention #{$intervention_id}";
 $total_benevoles = 0;
 foreach ($moyens_engage as $moyen) {
     $total_benevoles += (int)($moyen['nb_pse'] ?? 0);
@@ -150,11 +153,7 @@ foreach ($moyens_engage as $moyen) {
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard - Intervention #<?php echo $intervention_id; ?></title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+<?php require_once __DIR__ . '/includes/head.php'; ?>
     <style>
         body {
             background-color: #f8f9fa;
@@ -334,8 +333,11 @@ foreach ($moyens_engage as $moyen) {
                         <li><button type="button" class="dropdown-item" data-bs-toggle="modal" data-bs-target="#modal-commentaires"><i class="bi bi-chat-square-text"></i> Commentaires</button></li>
                     </ul>
                 </div>
-                <a href="index.php" class="btn btn-outline-secondary btn-sm">
-                    <i class="bi bi-plus-circle"></i> Nouvelle
+                <a href="creation.php?edit_id=<?php echo $intervention_id; ?>" class="btn btn-outline-primary btn-sm">
+                    <i class="bi bi-pencil-square"></i> Modifier l'intervention
+                </a>
+                <a href="creation.php" class="btn btn-outline-secondary btn-sm">
+                    <i class="bi bi-plus-circle"></i> Nouvelle Intervention
                 </a>
                 <span class="text-muted"><?php echo htmlspecialchars($_SESSION['user']['nom']); ?></span>
             </div>

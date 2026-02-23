@@ -2,348 +2,217 @@
 require_once __DIR__ . '/includes/auth_mock.php';
 require_once __DIR__ . '/includes/db.php';
 
-$message = '';
-$error = '';
-
-// Calcul du numéro d'intervention automatique (format YYYYMMDD + N)
-$annee_courante = date('Y');
-$stmt = $pdo->prepare("SELECT COUNT(*) as total FROM interventions WHERE YEAR(date_creation) = ?");
-$stmt->execute([$annee_courante]);
-$result = $stmt->fetch();
-$numero_auto = date('Ymd') . ($result['total'] + 1);
-
-// Traitement du formulaire
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    try {
-        $commune = trim($_POST['commune'] ?? '');
-        $adresse_pma = trim($_POST['adresse_pma'] ?? '');
-        $adresse_cai = trim($_POST['adresse_cai'] ?? '');
-        $demandeur = trim($_POST['demandeur'] ?? '');
-        $type_event = trim($_POST['type_event'] ?? '');
-        $is_acel = isset($_POST['is_acel']) ? 1 : 0;
-        $is_cot = isset($_POST['is_cot']) ? 1 : 0;
-        $numero_intervention = trim($_POST['numero_intervention'] ?? '');
-        $cadres_astreinte = trim($_POST['cadres_astreinte'] ?? '');
-        $description = trim($_POST['description'] ?? '');
-        
-        // Nouveaux champs
-        $cadre_permanence = trim($_POST['cadre_permanence'] ?? '');
-        $cadre_astreinte = trim($_POST['cadre_astreinte'] ?? '');
-        $dtus_permanence = trim($_POST['dtus_permanence'] ?? '');
-        $logisticien_astreinte = trim($_POST['logisticien_astreinte'] ?? '');
-        $aide_regulateur = trim($_POST['aide_regulateur'] ?? '');
-        
-        // Nouveaux champs additionnels
-        $adresse = trim($_POST['adresse'] ?? '');
-        $is_drm = isset($_POST['is_drm']) ? 1 : 0;
-        $drm_numero = trim($_POST['drm_numero'] ?? '');
-        $adresse_chu = trim($_POST['adresse_chu'] ?? '');
-        $adresse_prm = trim($_POST['adresse_prm'] ?? '');
-        $plan_aramis = isset($_POST['plan_aramis']) ? (int)$_POST['plan_aramis'] : 0;
-        
-        // Validation
-        if (empty($commune) || empty($adresse_pma) || empty($demandeur) || empty($type_event)) {
-            throw new Exception('Veuillez remplir tous les champs obligatoires.');
-        }
-        
-        // Insertion en base de données
-        $stmt = $pdo->prepare("
-            INSERT INTO interventions 
-            (commune, adresse, adresse_pma, adresse_cai, adresse_chu, adresse_prm, demandeur, type_event, 
-             is_acel, is_cot, is_drm, drm_numero, plan_aramis, numero_intervention, 
-             cadres_astreinte, description, cadre_permanence, cadre_astreinte, dtus_permanence, 
-             logisticien_astreinte, aide_regulateur)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ");
-        
-        $stmt->execute([
-            $commune, $adresse, $adresse_pma, $adresse_cai, $adresse_chu, $adresse_prm, $demandeur, $type_event,
-            $is_acel, $is_cot, $is_drm, $drm_numero, $plan_aramis, $numero_intervention, $cadres_astreinte, 
-            $description, $cadre_permanence, $cadre_astreinte, $dtus_permanence, $logisticien_astreinte, $aide_regulateur
-        ]);
-        
-        $intervention_id = $pdo->lastInsertId();
-        
-        // Redirection vers le dashboard
-        header("Location: dashboard.php?id=" . $intervention_id);
-        exit;
-        
-    } catch (Exception $e) {
-        $error = $e->getMessage();
-    }
-}
+// Titre de la landing page
+$page_title = "Accueil - Outil de gestion opérationnelle CRF";
 ?>
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Création d'Intervention - Gestion des Opérations CRF</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+<?php require_once __DIR__ . '/includes/head.php'; ?>
+    <style>
+        body {
+            background: #f8f9fa;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        .navbar-brand span {
+            letter-spacing: 0.05em;
+        }
+        .hero-section {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            padding: 4rem 0;
+            background: linear-gradient(135deg, #ffffff 0%, #ffe5e8 45%, #E2001A 100%);
+        }
+        .hero-badge {
+            font-size: 0.8rem;
+            letter-spacing: 0.08em;
+        }
+        .hero-title {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: #212529;
+        }
+        .hero-title span {
+            color: #E2001A;
+        }
+        .hero-subtitle {
+            font-size: 1.05rem;
+            color: #495057;
+        }
+        .pill {
+            border-radius: 999px;
+        }
+        .hero-image-card {
+            background: rgba(255, 255, 255, 0.92);
+            border-radius: 1.5rem;
+            box-shadow: 0 1rem 3rem rgba(0,0,0,0.15);
+            overflow: hidden;
+        }
+        .hero-image-top {
+            background: #E2001A;
+            padding: 1.25rem 1.5rem;
+            color: #fff;
+        }
+        .hero-image-top small {
+            opacity: 0.85;
+            letter-spacing: 0.08em;
+        }
+        .hero-image-top strong {
+            letter-spacing: 0.12em;
+        }
+        .hero-stats {
+            font-size: 0.85rem;
+        }
+        .hero-stats .badge {
+            font-weight: 500;
+        }
+        .logo-hero {
+            max-width: 140px;
+        }
+        .hero-illustration {
+            border-radius: 1.25rem;
+            object-fit: cover;
+            width: 100%;
+            height: 210px;
+        }
+        .footer {
+            border-top: 1px solid rgba(0,0,0,0.06);
+            font-size: 0.85rem;
+        }
+        @media (max-width: 991.98px) {
+            .hero-section {
+                padding-top: 2.5rem;
+            }
+            .hero-title {
+                font-size: 2rem;
+            }
+        }
+    </style>
 </head>
 <body>
-    <nav class="navbar navbar-light bg-light border-bottom">
-        <div class="container-fluid">
-            <span class="navbar-brand mb-0 h1 text-danger">
-                <i class="bi bi-heart-pulse-fill"></i> Croix-Rouge Française
-            </span>
-            <div>
-                <a href="history.php" class="btn btn-outline-secondary btn-sm me-2">
-                    <i class="bi bi-clock-history"></i> Voir l'Historique
-                </a>
-                <span class="text-muted">
-                    <?php echo htmlspecialchars($_SESSION['user']['nom']); ?>
-                </span>
+    <nav class="navbar navbar-expand-lg navbar-light bg-white border-bottom shadow-sm">
+        <div class="container">
+            <a class="navbar-brand d-flex align-items-center" href="index.php">
+                <img src="assets/img/logo.png" alt="Croix-Rouge Française" height="36" class="me-2">
+                
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarMain" aria-controls="navbarMain" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarMain">
+                <ul class="navbar-nav ms-auto mb-2 mb-lg-0 align-items-lg-center">
+                    <li class="nav-item me-2 mb-2 mb-lg-0">
+                        <a class="btn btn-outline-danger btn-sm" href="history.php">
+                            <i class="bi bi-clock-history me-1"></i> Historique
+                        </a>
+                    </li>
+                    <li class="nav-item me-2 mb-2 mb-lg-0">
+                        <a class="btn btn-danger btn-sm" href="creation.php">
+                            <i class="bi bi-plus-circle me-1"></i> Nouvelle intervention
+                        </a>
+                    </li>
+                    <li class="nav-item text-muted small ms-lg-2">
+                        <i class="bi bi-person-circle me-1"></i>
+                        <?php echo htmlspecialchars($_SESSION['user']['nom'] ?? 'Opérateur'); ?>
+                    </li>
+                </ul>
             </div>
         </div>
     </nav>
 
-    <div class="container mt-4">
-        <div class="row justify-content-center">
-            <div class="col-lg-10">
-                <div class="card shadow-sm border-0">
-                    <div class="card-header bg-white border-bottom">
-                        <h4 class="mb-0 text-danger"><i class="bi bi-plus-circle"></i> Créer une Nouvelle Intervention</h4>
+    <section class="hero-section">
+        <div class="container">
+            <div class="row align-items-center g-4">
+                <div class="col-lg-6">
+                    <span class="badge bg-light text-danger border border-danger pill hero-badge mb-3">
+                        <i class="bi bi-activity me-1"></i> Outil de coordination opérationnelle
+                    </span>
+                    <h1 class="hero-title mb-3">
+                        Bienvenue sur l'outil de<br>
+                        <span>gestion opérationnelle CRF</span>
+                    </h1>
+                    <p class="hero-subtitle mb-4">
+                        Centralisez le suivi de vos interventions, les moyens engagés et la main courante
+                        dans un espace unique, pensé pour les équipes de la Croix-Rouge française.
+                    </p>
+                    <div class="d-flex flex-wrap align-items-center gap-3 mb-4">
+                        <a href="creation.php" class="btn btn-danger btn-lg px-4">
+                            <i class="bi bi-plus-circle me-2"></i> Nouvelle Intervention
+                        </a>
+                        <a href="history.php" class="btn btn-outline-danger btn-lg px-4">
+                            <i class="bi bi-list-ul me-2"></i> Historique / Interventions en cours
+                        </a>
                     </div>
-                    <div class="card-body bg-light">
-                        <?php if ($error): ?>
-                            <div class="alert alert-danger" role="alert">
-                                <i class="bi bi-exclamation-triangle-fill"></i> <?php echo htmlspecialchars($error); ?>
+                    <div class="d-flex flex-wrap align-items-center text-muted small">
+                        <div class="me-3 d-flex align-items-center">
+                            <i class="bi bi-shield-check text-danger me-1"></i>
+                            <span>Traçabilité complète des décisions</span>
+                        </div>
+                        <div class="me-3 d-flex align-items-center">
+                            <i class="bi bi-diagram-3 text-danger me-1"></i>
+                            <span>Vue synthétique des moyens engagés</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-lg-6">
+                    <div class="hero-image-card">
+                        <div class="hero-image-top d-flex justify-content-between align-items-center">
+                            <div>
+                                <small class="text-uppercase d-block">Centre opérationnel</small>
+                                <strong>Coordination Croix-Rouge 92</strong>
                             </div>
-                        <?php endif; ?>
-                        
-                        <form method="POST" action="">
-                            <!-- Groupe 1 : Qui gère ? -->
-                            <fieldset class="card mb-4 shadow-sm">
-                                <div class="card-header bg-white">
-                                    <h5 class="mb-0 text-secondary"><i class="bi bi-people"></i> Qui gère ?</h5>
+                            <img src="assets/img/crfensemble.png" alt="Logo CRF" class="logo-hero d-none d-md-block">
+                        </div>
+                        <div class="row g-0">
+                            <div class="col-5 d-flex flex-column justify-content-between p-3">
+                                <div class="mb-3 hero-stats">
+                                    <div class="mb-2">
+                                        <span class="badge bg-danger pill me-2">Temps réel</span>
+                                        <span class="text-muted">Suivi des statuts</span>
+                                    </div>
+                                    <ul class="list-unstyled mb-0 text-muted">
+                                        <li class="mb-1"><i class="bi bi-check-circle-fill text-success me-1"></i> Dénombrement terrain</li>
+                                        <li class="mb-1"><i class="bi bi-chat-dots-fill text-danger me-1"></i> Main courante structurée</li>
+                                        <li class="mb-1"><i class="bi bi-file-earmark-pdf-fill text-secondary me-1"></i> Export de synthèse</li>
+                                    </ul>
                                 </div>
-                                <div class="card-body">
-                                    <div class="row">
-                                        <div class="col-md-6 mb-3">
-                                            <label for="cadre_permanence" class="form-label">Cadre Permanence</label>
-                                            <input type="text" class="form-control" id="cadre_permanence" 
-                                                   name="cadre_permanence" placeholder="Nom et coordonnées">
-                                        </div>
-                                        <div class="col-md-6 mb-3">
-                                            <label for="cadre_astreinte" class="form-label">Cadre Astreinte</label>
-                                            <input type="text" class="form-control" id="cadre_astreinte" 
-                                                   name="cadre_astreinte" placeholder="Nom et coordonnées">
-                                        </div>
-                                        <div class="col-md-6 mb-3">
-                                            <label for="dtus_permanence" class="form-label">DTUS Permanence</label>
-                                            <input type="text" class="form-control" id="dtus_permanence" 
-                                                   name="dtus_permanence" placeholder="Nom et coordonnées">
-                                        </div>
-                                        <div class="col-md-6 mb-3">
-                                            <label for="logisticien_astreinte" class="form-label">Logisticien Astreinte</label>
-                                            <input type="text" class="form-control" id="logisticien_astreinte" 
-                                                   name="logisticien_astreinte" placeholder="Nom et coordonnées">
-                                        </div>
-                                        <div class="col-md-6 mb-3">
-                                            <label for="aide_regulateur" class="form-label">Aide Régulateur</label>
-                                            <input type="text" class="form-control" id="aide_regulateur" 
-                                                   name="aide_regulateur" placeholder="Nom et coordonnées">
-                                        </div>
-                                        <div class="col-md-6 mb-3">
-                                            <label for="cadres_astreinte" class="form-label">Autres Cadres d'Astreinte</label>
-                                            <textarea class="form-control" id="cadres_astreinte" name="cadres_astreinte" rows="2" 
-                                                      placeholder="Autres cadres et coordonnées"></textarea>
-                                        </div>
+                                <div class="border-top pt-2 hero-stats">
+                                    <small class="text-muted d-block mb-1">Accès rapide</small>
+                                    <div class="d-flex flex-wrap gap-2">
+                                        <span class="badge bg-light text-dark pill">
+                                            <i class="bi bi-lightning-charge-fill text-warning me-1"></i> ACEL / COT
+                                        </span>
+                                        <span class="badge bg-light text-dark pill">
+                                            <i class="bi bi-flag-fill text-danger me-1"></i> Plan ARAMIS
+                                        </span>
+                                        <span class="badge bg-light text-dark pill">
+                                            <i class="bi bi-building-fill-check text-primary me-1"></i> Moyens engagés
+                                        </span>
                                     </div>
                                 </div>
-                            </fieldset>
-
-                            <!-- Groupe 2 : Où et Quoi ? -->
-                            <fieldset class="card mb-4 shadow-sm">
-                                <div class="card-header bg-white">
-                                    <h5 class="mb-0 text-secondary"><i class="bi bi-geo-alt"></i> Où et Quoi ?</h5>
-                                </div>
-                                <div class="card-body">
-                                    <div class="row mb-3">
-                                        <div class="col-md-4">
-                                            <label for="commune" class="form-label">Commune <span class="text-danger">*</span></label>
-                                            <input type="text" class="form-control" id="commune" name="commune" required>
-                                        </div>
-                                        <div class="col-md-4">
-                                            <label for="adresse" class="form-label">Adresse</label>
-                                            <input type="text" class="form-control" id="adresse" name="adresse" 
-                                                   placeholder="Adresse précise">
-                                        </div>
-                                        <div class="col-md-4">
-                                            <label for="demandeur" class="form-label">Demandeur <span class="text-danger">*</span></label>
-                                            <select class="form-select" id="demandeur" name="demandeur" required>
-                                                <option value="">-- Sélectionner --</option>
-                                                <option value="SAMU">SAMU</option>
-                                                <option value="VIGIE 92">VIGIE 92</option>
-                                                <option value="BSPP">BSPP</option>
-                                                <option value="Préfecture">Préfecture</option>
-                                                <option value="PC CRF">PC CRF</option>
-                                                <option value="Autre">Autre</option>
-                                            </select>
-                                        </div>
-                                    </div>
-                                    <div class="row mb-3">
-                                        <div class="col-md-6">
-                                            <label for="type_event" class="form-label">Type d'Événement <span class="text-danger">*</span></label>
-                                            <select class="form-select" id="type_event" name="type_event" required>
-                                                <option value="">-- Sélectionner --</option>
-                                                <option value="Incendie">Incendie</option>
-                                                <option value="Inondation">Inondation</option>
-                                                <option value="Accident">Accident</option>
-                                                <option value="Attentat">Attentat</option>
-                                                <option value="Événement Public">Événement Public</option>
-                                                <option value="Autre">Autre</option>
-                                            </select>
-                                        </div>
-                                        <div class="col-md-6">
-                                            <label for="numero_intervention" class="form-label">Numéro d'Intervention</label>
-                                            <input type="text" class="form-control" id="numero_intervention" 
-                                                   name="numero_intervention" value="<?php echo htmlspecialchars($numero_auto); ?>">
-                                        </div>
-                                    </div>
-                                    <div class="row mb-3">
-                                        <div class="col-md-6">
-                                            <div class="form-check mb-2">
-                                                <input class="form-check-input" type="checkbox" id="is_drm" name="is_drm" value="1">
-                                                <label class="form-check-label" for="is_drm">
-                                                    DRM
-                                                </label>
-                                            </div>
-                                            <div id="drm_numero_group" style="display: none;">
-                                                <label for="drm_numero" class="form-label">Numéro DRM</label>
-                                                <input type="text" class="form-control" id="drm_numero" name="drm_numero" 
-                                                       placeholder="Numéro DRM" pattern="[0-9]*" inputmode="numeric">
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div class="mb-3">
-                                        <label for="description" class="form-label">Description <span class="text-danger">*</span></label>
-                                        <textarea class="form-control" id="description" name="description" rows="4" 
-                                                  placeholder="Détails de la situation, contexte, besoins identifiés..." required></textarea>
-                                    </div>
-                                    <div class="row">
-                                        <div class="col-md-6">
-                                            <div class="form-check">
-                                                <input class="form-check-input" type="checkbox" id="is_acel" name="is_acel" value="1">
-                                                <label class="form-check-label" for="is_acel">
-                                                    ACEL (Accident Catastrophique à Effet Limité)
-                                                </label>
-                                            </div>
-                                        </div>
-                                        <div class="col-md-6">
-                                            <div class="form-check">
-                                                <input class="form-check-input" type="checkbox" id="is_cot" name="is_cot" value="1">
-                                                <label class="form-check-label" for="is_cot">
-                                                    Centre Opérationnel Territorial (COT)
-                                                </label>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <input type="hidden" id="plan_aramis" name="plan_aramis" value="0">
-                                </div>
-                            </fieldset>
-
-                            <!-- Groupe 3 : Logistique -->
-                            <fieldset class="card mb-4 shadow-sm">
-                                <div class="card-header bg-white">
-                                    <h5 class="mb-0 text-secondary"><i class="bi bi-building"></i> Logistique</h5>
-                                </div>
-                                <div class="card-body">
-                                    <div class="row">
-                                        <div class="col-md-6 mb-3">
-                                            <label for="adresse_pma" class="form-label">Adresse PMA <span class="text-danger">*</span></label>
-                                            <input type="text" class="form-control" id="adresse_pma" name="adresse_pma" 
-                                                   placeholder="Adresse du Point de Médical Avancé" required>
-                                        </div>
-                                        <div class="col-md-6 mb-3">
-                                            <label for="adresse_cai" class="form-label">Adresse CAI</label>
-                                            <input type="text" class="form-control" id="adresse_cai" name="adresse_cai" 
-                                                   placeholder="Adresse du Centre d'Accueil et d'Information">
-                                        </div>
-                                        <div class="col-md-6 mb-3">
-                                            <label for="adresse_chu" class="form-label">Adresse CHU</label>
-                                            <input type="text" class="form-control" id="adresse_chu" name="adresse_chu" 
-                                                   placeholder="Adresse du Centre Hospitalier Universitaire">
-                                        </div>
-                                        <div class="col-md-6 mb-3">
-                                            <label for="adresse_prm" class="form-label">Adresse PRM</label>
-                                            <input type="text" class="form-control" id="adresse_prm" name="adresse_prm" 
-                                                   placeholder="Adresse du Poste de Régulation Médicale">
-                                        </div>
-                                    </div>
-                                </div>
-                            </fieldset>
-
-                            <div class="d-grid gap-2 d-md-flex justify-content-md-end">
-                                <button type="submit" class="btn btn-danger btn-lg">
-                                    <i class="bi bi-check-circle"></i> Créer l'Intervention
-                                </button>
                             </div>
-                        </form>
+                        </div>
                     </div>
                 </div>
             </div>
         </div>
-    </div>
+    </section>
+
+    <footer class="footer py-3 bg-white">
+        <div class="container d-flex flex-wrap justify-content-between align-items-center">
+            <span class="text-muted small">
+                © <?php echo date('Y'); ?> Croix-Rouge française – Outil interne de gestion opérationnelle. - version 1.0.0 By Torciv
+            </span>
+            <span class="text-muted small">
+                <i class="bi bi-shield-lock me-1"></i> Données réservées aux équipes habilitées.
+            </span>
+        </div>
+    </footer>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    
-    <!-- Modale pour le Plan ARAMIS -->
-    <div class="modal fade" id="modalAramis" tabindex="-1" aria-labelledby="modalAramisLabel" aria-hidden="true">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="modalAramisLabel">Plan ARAMIS</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <div class="modal-body">
-                    <p>Est-ce dans le cadre du plan ARAMIS ?</p>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-success" onclick="setPlanAramis(1)" data-bs-dismiss="modal">Oui</button>
-                    <button type="button" class="btn btn-secondary" onclick="setPlanAramis(0)" data-bs-dismiss="modal">Non</button>
-                </div>
-            </div>
-        </div>
-    </div>
-    
-    <script>
-        // Gestion de l'affichage du champ DRM numéro
-        document.addEventListener('DOMContentLoaded', function() {
-            const checkboxDrm = document.getElementById('is_drm');
-            const drmNumeroGroup = document.getElementById('drm_numero_group');
-            
-            checkboxDrm.addEventListener('change', function() {
-                if (this.checked) {
-                    drmNumeroGroup.style.display = 'block';
-                } else {
-                    drmNumeroGroup.style.display = 'none';
-                    document.getElementById('drm_numero').value = '';
-                }
-            });
-            
-            // Gestion de la modale ARAMIS quand COT est coché
-            const checkboxCot = document.getElementById('is_cot');
-            const modalAramis = new bootstrap.Modal(document.getElementById('modalAramis'));
-            
-            checkboxCot.addEventListener('change', function() {
-                if (this.checked) {
-                    // Ouvrir la modale
-                    modalAramis.show();
-                } else {
-                    // Si on décoche COT, remettre plan_aramis à 0
-                    document.getElementById('plan_aramis').value = 0;
-                }
-            });
-        });
-        
-        // Fonction pour définir le plan ARAMIS
-        function setPlanAramis(value) {
-            document.getElementById('plan_aramis').value = value;
-        }
-    </script>
 </body>
 </html>
 

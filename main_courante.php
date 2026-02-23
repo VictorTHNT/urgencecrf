@@ -5,7 +5,7 @@ require_once __DIR__ . '/includes/db.php';
 $intervention_id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 
 if (!$intervention_id) {
-    header("Location: index.php");
+    header("Location: creation.php");
     exit;
 }
 
@@ -17,6 +17,9 @@ $intervention = $stmt->fetch();
 if (!$intervention) {
     die("Intervention introuvable.");
 }
+
+// Titre de page
+$page_title = "Main Courante - Intervention #{$intervention_id}";
 
 // Traitement de l'ajout d'un message
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'add_message') {
@@ -84,11 +87,7 @@ try {
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Main Courante - Intervention #<?php echo $intervention_id; ?></title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+<?php require_once __DIR__ . '/includes/head.php'; ?>
     <style>
         /* Timeline Main Courante */
         .timeline-container {
